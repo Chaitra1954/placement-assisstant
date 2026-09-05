@@ -23,16 +23,16 @@
     <label for="apiKeyInput"><strong>Gemini API Key:</strong></label>
     <div style="display: flex; gap: 10px;">
       <input type="password" id="apiKeyInput" placeholder="Paste your Gemini API Key here...">
-      <button id="toggleApiKeyBtn" class="btn-primary" onclick="toggleApiKey()">👁️ Show</button>
+      <button id="toggleApiKeyBtn" type="button" class="btn-primary" onclick="toggleApiKey()">👁️ Show</button>
     </div>
-    <button class="btn-primary" onclick="requestNotificationPermission()">🔔 Enable Desktop Notifications</button>
+    <button type="button" class="btn-primary" onclick="requestNotificationPermission()">🔔 Enable Desktop Notifications</button>
   </div>
 
   <!-- Raw Notice Input -->
   <div class="card">
     <label for="noticeInput"><strong>Paste Placement Notice / Email:</strong></label>
     <textarea id="noticeInput" placeholder="Paste company notice text here..."></textarea>
-    <button class="btn-success" onclick="extractSchedule()">✨ Extract & Save Schedule</button>
+    <button type="button" class="btn-success" onclick="extractSchedule()">✨ Extract & Save Schedule</button>
   </div>
 
   <!-- Schedule Display List -->
