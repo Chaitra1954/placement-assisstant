@@ -7,12 +7,12 @@ if ('serviceWorker' in navigator) {
 
 // --- YOUR FIREBASE CONFIGURATION ---
 const firebaseConfig = {
-  apiKey: "YOUR_FIREBASE_API_KEY",
-  authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
-  projectId: "YOUR_PROJECT_ID",
-  storageBucket: "YOUR_PROJECT_ID.appspot.com",
-  messagingSenderId: "YOUR_SENDER_ID",
-  appId: "YOUR_APP_ID"
+  apiKey: "AIzaSyDeie-hnqSsqlHjDr_gOyO7Sjc3dAr-I60",
+  authDomain: "placement-assistant-bc0e5.firebaseapp.com",
+  projectId: "placement-assistant-bc0e5",
+  storageBucket: "placement-assistant-bc0e5.firebasestorage.app",
+  messagingSenderId: "139614386732",
+  appId: "1:139614386732:web:59961b88f1a687b9a0ef89"
 };
 
 // Initialize Firebase
