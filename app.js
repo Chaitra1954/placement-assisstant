@@ -11,8 +11,10 @@ function saveApiKey() {
 
 function loadApiKey() {
   const savedKey = localStorage.getItem("gemini_api_key");
-  if (savedKey) {
-    document.getElementById("apiKey").value = savedKey;
+  const input = document.getElementById("apiKey");
+  if (savedKey && input) {
+    input.type = "password"; // Force password masking on startup
+    input.value = savedKey;
   }
 }
 
