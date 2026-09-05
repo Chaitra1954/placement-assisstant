@@ -1,9 +1,9 @@
-// Register Service Worker for Background Notifications
+// Service Worker Registration
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('./firebase-messaging-sw.js')
-      .then(reg => console.log('Service Worker registered successfully:', reg.scope))
-      .catch(err => console.warn('Service Worker registration skipped or failed:', err));
+      .then(reg => console.log('Service Worker registered:', reg.scope))
+      .catch(err => console.warn('Service Worker failed:', err));
   });
 }
 
@@ -14,7 +14,7 @@ window.toggleApiKey = function() {
   
   if (apiKeyInput.type === "password") {
     apiKeyInput.type = "text";
-    toggleBtn.textContent = " Hide";
+    toggleBtn.textContent = "🙈 Hide";
   } else {
     apiKeyInput.type = "password";
     toggleBtn.textContent = "👁️ Show";
@@ -30,15 +30,15 @@ window.requestNotificationPermission = async function() {
 
   const permission = await Notification.requestPermission();
   if (permission === "granted") {
-    new Notification("🔔 Notifications Enabled!", {
-      body: "You will now receive placement schedule alerts on this device.",
+    new Notification("🔔 Notifications Active!", {
+      body: "You will receive desktop alerts for all upcoming placement events.",
     });
   } else {
-    alert("Notification permissions were denied. Please enable them in your browser settings.");
+    alert("Permissions denied. Enable notifications in browser settings.");
   }
 };
 
-// 3. Extract & Save Schedule
+// 3. Extract & Save Schedule (With Conflict Checking)
 window.extractSchedule = async function() {
   const apiKeyInput = document.getElementById('apiKeyInput');
   const noticeInput = document.getElementById('noticeInput');
@@ -53,7 +53,6 @@ window.extractSchedule = async function() {
 
   let newSchedule = null;
 
-  // Try parsing with Gemini API if key exists, otherwise fallback to standard text extraction
   if (apiKey) {
     try {
       const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
@@ -84,11 +83,11 @@ window.extractSchedule = async function() {
         }
       }
     } catch (e) {
-      console.warn("Gemini API call failed, using text fallback:", e);
+      console.warn("Gemini API call failed, using fallback:", e);
     }
   }
 
-  // Fallback parser if API key is missing or fails
+  // Fallback parsing
   if (!newSchedule) {
     const compMatch = noticeText.match(/Company:\s*(.*)/i);
     const eventMatch = noticeText.match(/Event:\s*(.*)/i);
@@ -103,17 +102,32 @@ window.extractSchedule = async function() {
     };
   }
 
-  // Save to LocalStorage
-  const schedules = JSON.parse(localStorage.getItem("placementSchedules") || "[]");
-  schedules.push(newSchedule);
-  localStorage.setItem("placementSchedules", JSON.stringify(schedules));
+  const existingSchedules = JSON.parse(localStorage.getItem("placementSchedules") || "[]");
+
+  // --- CONFLICT DETECTION LOGIC ---
+  const conflict = existingSchedules.find(item => item.time.toLowerCase() === newSchedule.time.toLowerCase());
+  
+  if (conflict) {
+    const proceed = confirm(`⚠️ SCHEDULE CONFLICT DETECTED!\n\nYou already have "${conflict.company} - ${conflict.title}" scheduled at ${conflict.time}.\n\nDo you still want to add this event?`);
+    if (!proceed) return;
+  }
+
+  existingSchedules.push(newSchedule);
+  localStorage.setItem("placementSchedules", JSON.stringify(existingSchedules));
+
+  // Trigger Immediate Notification Alert
+  if (Notification.permission === "granted") {
+    new Notification(`📌 New Schedule Added: ${newSchedule.company}`, {
+      body: `${newSchedule.title} at ${newSchedule.time}`,
+    });
+  }
 
   noticeInput.value = "";
   alert("✨ Schedule Saved Successfully!");
   renderSchedules();
 };
 
-// 4. Delete Individual Schedule Item
+// 4. Delete Schedule Entry
 window.deleteSchedule = function(id) {
   let schedules = JSON.parse(localStorage.getItem("placementSchedules") || "[]");
   schedules = schedules.filter(item => item.id !== id);
@@ -121,7 +135,7 @@ window.deleteSchedule = function(id) {
   renderSchedules();
 };
 
-// 5. Render Schedule List (Original Staked Layout)
+// 5. Render Schedules
 function renderSchedules() {
   const scheduleList = document.getElementById('scheduleList');
   if (!scheduleList) return;
@@ -143,7 +157,24 @@ function renderSchedules() {
     </div>
   `).join('');
 }
-// 6. Restore API key and list on load
+
+// 6. Active Notification Interval Trigger (Runs every 10 seconds)
+setInterval(() => {
+  if (Notification.permission !== "granted") return;
+
+  const schedules = JSON.parse(localStorage.getItem("placementSchedules") || "[]");
+  schedules.forEach(item => {
+    if (!item.notified) {
+      new Notification(`🚨 Placement Alert: ${item.company}`, {
+        body: `${item.title} is scheduled for ${item.time}`,
+      });
+      item.notified = true;
+    }
+  });
+  localStorage.setItem("placementSchedules", JSON.stringify(schedules));
+}, 10000);
+
+// Initialize Page Data
 document.addEventListener('DOMContentLoaded', () => {
   const apiKeyInput = document.getElementById('apiKeyInput');
   if (apiKeyInput) {
