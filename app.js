@@ -42,7 +42,7 @@ async function addScheduleWithAI() {
 
   const endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent";
 
-  // Using local time to prevent UTC timezone offset issues
+  // Using local time reference to prevent UTC offset shifts
   const nowLocal = new Date().toString();
 
   const systemPrompt = `Extract schedule details from this placement notice.
@@ -131,7 +131,15 @@ function checkConflicts(event, index) {
   return false;
 }
 
-// 5. Daily Morning Briefing Generator
+// 5. Delete Event Function
+function deleteSchedule(id) {
+  schedules = schedules.filter(item => item.id !== id);
+  localStorage.setItem("schedules", JSON.stringify(schedules));
+  renderSchedules();
+  renderDailyDigest(false);
+}
+
+// 6. Daily Morning Briefing Generator
 function renderDailyDigest(forceShow) {
   const briefingContainer = document.getElementById("briefingContainer");
   const todayStr = new Date().toDateString();
@@ -170,7 +178,7 @@ function renderDailyDigest(forceShow) {
   }
 }
 
-// 6. Render Schedule List with Conflict Indicators & Rule Checklists
+// 7. Render Schedule List with Conflict Indicators, Rules, & Delete Buttons
 function renderSchedules() {
   const listDiv = document.getElementById("scheduleList");
   listDiv.innerHTML = "";
@@ -195,12 +203,16 @@ function renderSchedules() {
         📅 Start: ${startStr}<br>
         🔗 ${item.link && item.link !== "#" ? `<a href="${item.link}" target="_blank">Open Event Link</a>` : "No link found"}
         ${rulesHtml}
+        <br>
+        <button onclick="deleteSchedule(${item.id})" style="background-color: #ff4d4d; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; margin-top: 8px; font-weight: bold;">
+          🗑️ Delete Event
+        </button>
       </div>
     `;
   });
 }
 
-// 7. Background Loop for 15-Minute Warnings
+// 8. Background Loop for 15-Minute Warnings
 setInterval(() => {
   const now = Date.now();
   schedules.forEach(item => {
