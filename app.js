@@ -5,7 +5,7 @@ if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('./firebase-messaging-sw.js')
       .then((registration) => {
-        console.log('Service Worker registered:', registration.scope);
+        console.log('Service Worker registered successfully:', registration.scope);
       })
       .catch((err) => {
         console.error('Service Worker registration failed:', err);
@@ -14,7 +14,7 @@ if ('serviceWorker' in navigator) {
 }
 
 // ==========================================
-// 2. TOGGLE API KEY VISIBILITY
+// 2. TOGGLE & SAVE API KEY
 // ==========================================
 function toggleApiKey() {
   const apiKeyInput = document.getElementById('apiKeyInput');
@@ -28,6 +28,18 @@ function toggleApiKey() {
     toggleBtn.textContent = "👁️ Show";
   }
 }
+
+// Save key automatically when typed
+document.addEventListener('DOMContentLoaded', () => {
+  const apiKeyInput = document.getElementById('apiKeyInput');
+  if (apiKeyInput) {
+    apiKeyInput.value = localStorage.getItem('geminiApiKey') || '';
+    apiKeyInput.addEventListener('input', (e) => {
+      localStorage.setItem('geminiApiKey', e.target.value.trim());
+    });
+  }
+  renderSchedules();
+});
 
 // ==========================================
 // 3. ENABLE NOTIFICATIONS BUTTON HANDLER
@@ -49,37 +61,72 @@ async function requestNotificationPermission() {
 }
 
 // ==========================================
-// 4. EXTRACT & SAVE SCHEDULE BUTTON HANDLER
+// 4. GEMINI AI PARSING & EXTRACT BUTTON
 // ==========================================
 async function extractSchedule() {
-  const noticeInput = document.getElementById('noticeInput');
-  const noticeText = noticeInput ? noticeInput.value.trim() : "";
+  const apiKey = localStorage.getItem('geminiApiKey') || document.getElementById('apiKeyInput').value.trim();
+  const noticeInput = document.getElementById('noticeInput').value.trim();
 
-  if (!noticeText) {
-    alert("Please paste a placement notice first!");
+  if (!apiKey) {
+    alert("Please enter and save your Gemini API Key first!");
     return;
   }
 
-  // Basic regex parsing fallback
-  const companyMatch = noticeText.match(/Company:\s*(.*)/i);
-  const eventMatch = noticeText.match(/Event:\s*(.*)/i);
-  const timeMatch = noticeText.match(/Time:\s*(.*)/i);
+  if (!noticeInput) {
+    alert("Please paste a placement notice to extract!");
+    return;
+  }
 
-  const newSchedule = {
-    id: Date.now(),
-    company: companyMatch ? companyMatch[1] : "Test Corp AI",
-    title: eventMatch ? eventMatch[1] : "Live System Test",
-    time: timeMatch ? timeMatch[1] : "Upcoming",
-    notified: false
-  };
+  try {
+    // Direct call to Gemini API for smart extraction
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{
+          parts: [{
+            text: `Extract key placement event info from this notice into valid JSON only. Format: {"company": "Name", "title": "Event/Role Name", "time": "Time/Date"}.\n\nNotice:\n${noticeInput}`
+          }]
+        }]
+      })
+    });
 
-  const existingSchedules = JSON.parse(localStorage.getItem("placementSchedules") || "[]");
-  existingSchedules.push(newSchedule);
-  localStorage.setItem("placementSchedules", JSON.stringify(existingSchedules));
+    const data = await response.json();
+    
+    if (data.error) {
+      alert("Gemini API Error: " + data.error.message);
+      return;
+    }
 
-  noticeInput.value = "";
-  alert("✨ Schedule Extracted & Saved Successfully!");
-  renderSchedules();
+    const rawText = data.candidates[0].content.parts[0].text;
+    const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+    const parsedData = jsonMatch ? JSON.parse(jsonMatch[0]) : null;
+
+    if (!parsedData) {
+      throw new Error("Could not parse schedule JSON from AI response.");
+    }
+
+    // Save extracted object to local storage
+    const newSchedule = {
+      id: Date.now(),
+      company: parsedData.company || "Company",
+      title: parsedData.title || "Placement Event",
+      time: parsedData.time || "Scheduled Time",
+      notified: false
+    };
+
+    const existingSchedules = JSON.parse(localStorage.getItem("placementSchedules") || "[]");
+    existingSchedules.push(newSchedule);
+    localStorage.setItem("placementSchedules", JSON.stringify(existingSchedules));
+
+    document.getElementById('noticeInput').value = "";
+    alert("✨ Schedule Extracted Successfully!");
+    renderSchedules();
+
+  } catch (err) {
+    console.error("Extraction Failed:", err);
+    alert("Failed to process notice. Check your API key or console for details.");
+  }
 }
 
 // ==========================================
@@ -103,25 +150,3 @@ function renderSchedules() {
     </div>
   `).join('');
 }
-
-// ==========================================
-// 6. BACKGROUND NOTIFICATION LOOP
-// ==========================================
-setInterval(() => {
-  if (Notification.permission !== "granted") return;
-
-  const schedules = JSON.parse(localStorage.getItem("placementSchedules") || "[]");
-
-  schedules.forEach((item) => {
-    if (item.notified) return;
-
-    new Notification(`🚨 Upcoming Event: ${item.company}`, {
-      body: `${item.title} scheduled for ${item.time}`,
-    });
-    item.notified = true;
-  });
-
-  localStorage.setItem("placementSchedules", JSON.stringify(schedules));
-}, 30000);
-
-window.addEventListener('DOMContentLoaded', renderSchedules);
