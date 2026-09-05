@@ -1,11 +1,11 @@
-// Register Service Worker for Background Notifications
+// Service Worker Registration for Background Alerts
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('./firebase-messaging-sw.js').catch(err => console.warn(err));
   });
 }
 
-// 1. Toggle API Key Visibility
+// 1. Toggle API Key Input Visibility
 window.toggleApiKey = function() {
   const apiKeyInput = document.getElementById('apiKeyInput');
   const toggleBtn = document.getElementById('toggleApiKeyBtn');
@@ -14,18 +14,18 @@ window.toggleApiKey = function() {
   if (toggleBtn) toggleBtn.textContent = apiKeyInput.type === "password" ? "👁️ Show" : "🙈 Hide";
 };
 
-// 2. Enable Notifications
+// 2. Browser Notification Setup
 window.requestNotificationPermission = async function() {
-  if (!("Notification" in window)) return alert("Notifications are not supported in this browser.");
+  if (!("Notification" in window)) return alert("Desktop notifications are not supported in this browser.");
   const permission = await Notification.requestPermission();
   if (permission === "granted") {
-    new Notification("🔔 Daily Placement Planner Active!", { body: "You will receive alerts 15 minutes prior to scheduled events." });
+    new Notification("🔔 Daily Placement Agenda Active!", { body: "You will receive desktop notifications 15 minutes before scheduled events." });
   } else {
-    alert("Notification permissions denied. Please enable them in browser settings.");
+    alert("Notification permission denied. Please enable alerts in browser settings.");
   }
 };
 
-// --- HELPER FUNCTIONS TO FIX TIMEZONE ROLLBACK BUG ---
+// --- TIMEZONE-SAFE DATE HELPER (Prevents 1-day rollback bug) ---
 function getLocalIsoDate(dateObj) {
   const year = dateObj.getFullYear();
   const month = String(dateObj.getMonth() + 1).padStart(2, '0');
@@ -35,16 +35,20 @@ function getLocalIsoDate(dateObj) {
 
 function parseToIsoDate(dateStr) {
   try {
-    const cleanStr = dateStr.replace(/(st|nd|rd|th)/i, '');
-    const d = new Date(cleanStr);
-    if (!isNaN(d.getTime())) {
-      return getLocalIsoDate(d); // Safely formats in local timezone
+    const cleanStr = dateStr.replace(/(st|nd|rd|th)/i, '').trim();
+    const parts = cleanStr.split(/\s+/);
+    if (parts.length === 3) {
+      const day = parts[0].padStart(2, '0');
+      const monthMap = { jan:'01', feb:'02', mar:'03', apr:'04', may:'05', jun:'06', jul:'07', aug:'08', sep:'09', oct:'10', nov:'11', dec:'12' };
+      const month = monthMap[parts[1].substring(0, 3).toLowerCase()];
+      const year = parts[2];
+      if (day && month && year) return `${year}-${month}-${day}`;
     }
   } catch (e) {}
   return getLocalIsoDate(new Date());
 }
 
-// 3. Extract Schedule (Gemini LLM + Smart Fallback Parser)
+// 3. Extract Schedule (Gemini LLM + Smart Regex Fallback)
 window.extractSchedule = async function() {
   const apiKey = (document.getElementById('apiKeyInput')?.value || '').trim();
   const noticeText = (document.getElementById('noticeInput')?.value || '').trim();
@@ -52,9 +56,9 @@ window.extractSchedule = async function() {
   if (!noticeText) return alert("Please paste a placement notice first!");
 
   let newSchedule = null;
-  const currentLocalIso = getLocalIsoDate(new Date());
+  const currentLocalDate = getLocalIsoDate(new Date());
 
-  // Primary LLM Extraction via Gemini 1.5 Flash
+  // Primary LLM Extraction using Gemini 1.5 Flash
   if (apiKey) {
     try {
       const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
@@ -63,9 +67,9 @@ window.extractSchedule = async function() {
         body: JSON.stringify({
           contents: [{
             parts: [{
-              text: `Extract key placement event info from this notice into valid JSON only. Current local date is ${currentLocalIso}. 
+              text: `Extract key placement event info from this notice into valid JSON only. Current local date is ${currentLocalDate}. 
               Format: {"company": "Name", "title": "Event/Role Name", "displayDate": "YYYY-MM-DD", "displayTime": "HH:MM AM/PM", "duration": "e.g. 30 mins / 2 hours", "isoTimestamp": "YYYY-MM-THH:mm:ss"}. 
-              Ensure displayDate matches local date context without shifting timezones.\n\nNotice:\n${noticeText}`
+              Calculate start time and duration if a time range is provided.\n\nNotice:\n${noticeText}`
             }]
           }]
         })
@@ -81,7 +85,7 @@ window.extractSchedule = async function() {
             id: Date.now(),
             company: parsed.company || "Placement Company",
             title: parsed.title || "Placement Event",
-            date: parsed.displayDate || currentLocalIso,
+            date: parsed.displayDate || currentLocalDate,
             time: parsed.displayTime || "Scheduled Time",
             duration: parsed.duration || "N/A",
             isoTimestamp: parsed.isoTimestamp || new Date().toISOString(),
@@ -90,11 +94,11 @@ window.extractSchedule = async function() {
         }
       }
     } catch (e) {
-      console.warn("Gemini API parsing failed, falling back to smart regex parser:", e);
+      console.warn("Gemini API call failed, running Fallback Parser:", e);
     }
   }
 
-  // Advanced Fallback Parser for Free-Form Paragraph Text & Tables
+  // Fallback Parser for Unstructured Paragraph Text and Lists
   if (!newSchedule) {
     const compMatch = noticeText.match(/(?:process of|assessment of|company:)\s*([A-Za-z0-9\s&]+(?:Pvt\.|Ltd\.|Inc\.|Corp)?)/i) || noticeText.match(/(?:Company):\s*(.*)/i);
     const dateMatch = noticeText.match(/(\d{1,2}(?:st|nd|rd|th)?\s+[A-Za-z]{3,9}\s+\d{4})/i) || noticeText.match(/(?:Date):\s*(.*)/i);
@@ -102,7 +106,7 @@ window.extractSchedule = async function() {
     const eventMatch = noticeText.match(/(?:online assessment|interview|coding test|placement talk|aptitude test)/i) || noticeText.match(/(?:Event|Title):\s*(.*)/i);
 
     const extractedCompany = compMatch ? compMatch[1].replace(/As a mandatory.*/i, '').trim() : "Placement Company";
-    const extractedDate = dateMatch ? parseToIsoDate(dateMatch[1]) : currentLocalIso;
+    const extractedDate = dateMatch ? parseToIsoDate(dateMatch[1]) : currentLocalDate;
     const startTime = timeMatches ? timeMatches[0] : "10:00 AM";
     const durationStr = timeMatches && timeMatches.length > 1 ? `${timeMatches[0]} to ${timeMatches[1]}` : "30 mins";
 
@@ -126,7 +130,7 @@ window.extractSchedule = async function() {
 
   const existingSchedules = JSON.parse(localStorage.getItem("placementSchedules") || "[]");
 
-  // Concurrency & Overlap Checking (15-Minute Window)
+  // Concurrency Checking (Flags events scheduled within 15 minutes of each other)
   const newTimeMs = new Date(newSchedule.isoTimestamp).getTime();
   let hasConflict = false;
 
@@ -138,7 +142,7 @@ window.extractSchedule = async function() {
 
   if (overlappingEvent) {
     hasConflict = true;
-    const proceed = confirm(`⚠️ SCHEDULE CONFLICT DETECTED!\n\n"${newSchedule.company}" (${newSchedule.time}) is scheduled within 15 minutes of "${overlappingEvent.company}" (${overlappingEvent.time}).\n\nDo you still want to save it?`);
+    const proceed = confirm(`⚠️ TIMING CONFLICT DETECTED!\n\n"${newSchedule.company}" (${newSchedule.time}) is within 15 minutes of "${overlappingEvent.company}" (${overlappingEvent.time}).\n\nDo you still want to add this event?`);
     if (!proceed) return;
   }
 
@@ -148,11 +152,11 @@ window.extractSchedule = async function() {
 
   const noticeInput = document.getElementById('noticeInput');
   if (noticeInput) noticeInput.value = "";
-  alert("✨ Schedule Added Successfully!");
+  alert("✨ Event Added to Daily Agenda!");
   renderSchedules();
 };
 
-// 4. Delete Individual Entry
+// 4. Delete Entry
 window.deleteSchedule = function(id) {
   let schedules = JSON.parse(localStorage.getItem("placementSchedules") || "[]");
   schedules = schedules.filter(item => item.id !== id);
@@ -172,7 +176,7 @@ function renderSchedules() {
     return;
   }
 
-  // Group schedules by Local Date string
+  // Group schedules by local Date
   const groupedSchedules = schedules.reduce((acc, item) => {
     const key = item.date || "Unscheduled";
     if (!acc[key]) acc[key] = [];
@@ -204,7 +208,7 @@ function renderSchedules() {
   `).join('');
 }
 
-// 6. Active Background Notification Loop (Evaluates every 15 seconds)
+// 6. Active Notification Loop (Checks every 15 seconds)
 setInterval(() => {
   if (Notification.permission !== "granted") return;
 
@@ -216,7 +220,7 @@ setInterval(() => {
 
     const diffMs = new Date(item.isoTimestamp).getTime() - now;
 
-    // Fires 15 minutes prior to scheduled start time
+    // Triggers desktop alert 15 minutes prior to scheduled start time
     if (diffMs <= 15 * 60 * 1000 && diffMs > -5 * 60 * 1000) {
       new Notification(`🚨 Placement Alert: ${item.company}`, {
         body: `${item.title} starts in 15 mins (${item.time}) | Duration: ${item.duration}`,
