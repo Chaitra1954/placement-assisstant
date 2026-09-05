@@ -13,16 +13,18 @@ window.toggleApiKey = function() {
   toggleBtn.textContent = apiKeyInput.type === "password" ? "👁️ Show" : "🙈 Hide";
 };
 
-// 2. Enable Notifications
+// 2. Notification Authorization
 window.requestNotificationPermission = async function() {
-  if (!("Notification" in window)) return alert("Notifications not supported.");
+  if (!("Notification" in window)) return alert("Notifications not supported in this browser.");
   const permission = await Notification.requestPermission();
   if (permission === "granted") {
-    new Notification("🔔 Daily Planner Active!", { body: "Your daily schedule is ready and tracking alerts." });
+    new Notification("🔔 Daily Placement Alerts Active!", { body: "You will receive notifications 15 minutes prior to scheduled events." });
+  } else {
+    alert("Permission denied. Enable notifications in your browser settings.");
   }
 };
 
-// 3. Extract Schedule with Duration and Daily Date Context
+// 3. Extract Schedule (AI + Regex Fallback Parser)
 window.extractSchedule = async function() {
   const apiKey = (document.getElementById('apiKeyInput')?.value || '').trim();
   const noticeText = (document.getElementById('noticeInput')?.value || '').trim();
@@ -32,6 +34,7 @@ window.extractSchedule = async function() {
   let newSchedule = null;
   const currentIsoTime = new Date().toISOString();
 
+  // Primary Parsing via Gemini API
   if (apiKey) {
     try {
       const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
@@ -42,7 +45,7 @@ window.extractSchedule = async function() {
             parts: [{
               text: `Extract key placement event info from this notice into valid JSON only. Current time context is ${currentIsoTime}. 
               Format: {"company": "Name", "title": "Event/Role Name", "displayDate": "YYYY-MM-DD", "displayTime": "HH:MM AM/PM", "duration": "e.g. 45 mins / 2 hours", "isoTimestamp": "YYYY-MM-THH:mm:ss"}. 
-              Extract or estimate duration if mentioned, and convert relative dates like "today" or "tomorrow" into accurate YYYY-MM-DD dates.\n\nNotice:\n${noticeText}`
+              Convert relative dates like "today" or "tomorrow" into accurate YYYY-MM-DD dates.\n\nNotice:\n${noticeText}`
             }]
           }]
         })
@@ -67,24 +70,27 @@ window.extractSchedule = async function() {
         }
       }
     } catch (e) {
-      console.warn("API parsing failed, using fallback:", e);
+      console.warn("Gemini API parsing failed, falling back to regex parser:", e);
     }
   }
 
-  // Text Parsing Fallback
+  // Fallback Text Parser (Runs if Gemini fails or API key is missing)
   if (!newSchedule) {
-    const compMatch = noticeText.match(/Company:\s*(.*)/i);
-    const eventMatch = noticeText.match(/Event:\s*(.*)/i);
-    const timeMatch = noticeText.match(/Time:\s*(.*)/i);
-    const durMatch = noticeText.match(/Duration:\s*(.*)/i);
+    const compMatch = noticeText.match(/(?:Company|Organization):\s*(.*)/i);
+    const eventMatch = noticeText.match(/(?:Event|Title|Role):\s*(.*)/i);
+    const timeMatch = noticeText.match(/(?:Time|Schedule):\s*(.*)/i);
+    const dateMatch = noticeText.match(/(?:Date):\s*(.*)/i);
+    const durMatch = noticeText.match(/(?:Duration|Length):\s*(.*)/i);
+
+    const todayStr = new Date().toISOString().split('T')[0];
 
     newSchedule = {
       id: Date.now(),
-      company: compMatch ? compMatch[1] : "Test Corp AI",
-      title: eventMatch ? eventMatch[1] : "Placement Event",
-      date: new Date().toISOString().split('T')[0],
-      time: timeMatch ? timeMatch[1] : "Upcoming",
-      duration: durMatch ? durMatch[1] : "N/A",
+      company: compMatch ? compMatch[1].trim() : "Placement Company",
+      title: eventMatch ? eventMatch[1].trim() : "Placement Assessment",
+      date: dateMatch ? dateMatch[1].trim() : todayStr,
+      time: timeMatch ? timeMatch[1].trim() : "Upcoming",
+      duration: durMatch ? durMatch[1].trim() : "N/A",
       isoTimestamp: new Date().toISOString(),
       notified: false
     };
@@ -92,7 +98,7 @@ window.extractSchedule = async function() {
 
   const existingSchedules = JSON.parse(localStorage.getItem("placementSchedules") || "[]");
 
-  // Conflict Detection (Within 15 minutes)
+  // Concurrency & Overlap Checking (Flags events within 15 mins of each other)
   const newTimeMs = new Date(newSchedule.isoTimestamp).getTime();
   let hasConflict = false;
 
@@ -104,7 +110,7 @@ window.extractSchedule = async function() {
 
   if (overlappingEvent) {
     hasConflict = true;
-    const proceed = confirm(`⚠️ TIMING CONFLICT DETECTED!\n\n"${newSchedule.company}" (${newSchedule.time}) overlaps with "${overlappingEvent.company}" (${overlappingEvent.time}).\n\nSave anyway?`);
+    const proceed = confirm(`⚠️ TIMING CONFLICT DETECTED!\n\n"${newSchedule.company}" (${newSchedule.time}) overlaps with "${overlappingEvent.company}" (${overlappingEvent.time}).\n\nSave to schedule anyway?`);
     if (!proceed) return;
   }
 
@@ -113,11 +119,11 @@ window.extractSchedule = async function() {
   localStorage.setItem("placementSchedules", JSON.stringify(existingSchedules));
 
   document.getElementById('noticeInput').value = "";
-  alert("✨ Schedule Added to Daily Agenda!");
+  alert("✨ Schedule Added Successfully!");
   renderSchedules();
 };
 
-// 4. Delete Entry
+// 4. Delete Schedule Entry
 window.deleteSchedule = function(id) {
   let schedules = JSON.parse(localStorage.getItem("placementSchedules") || "[]");
   schedules = schedules.filter(item => item.id !== id);
@@ -125,7 +131,7 @@ window.deleteSchedule = function(id) {
   renderSchedules();
 };
 
-// 5. Render Daily Plan Layout Grouped by Date
+// 5. Render Daily Schedule Plan Grouped by Date
 function renderSchedules() {
   const scheduleList = document.getElementById('scheduleList');
   if (!scheduleList) return;
@@ -133,11 +139,11 @@ function renderSchedules() {
   const schedules = JSON.parse(localStorage.getItem("placementSchedules") || "[]");
 
   if (schedules.length === 0) {
-    scheduleList.innerHTML = "<p>No daily activity planned yet.</p>";
+    scheduleList.innerHTML = "<p>No daily activities planned yet.</p>";
     return;
   }
 
-  // Group schedules by Date
+  // Group events by Date string
   const groupedSchedules = schedules.reduce((acc, item) => {
     const key = item.date || "Unscheduled Date";
     if (!acc[key]) acc[key] = [];
@@ -145,7 +151,7 @@ function renderSchedules() {
     return acc;
   }, {});
 
-  // Render Daily Agendas
+  // Output daily agendas
   scheduleList.innerHTML = Object.keys(groupedSchedules).sort().map(date => `
     <div style="margin-bottom: 20px;">
       <h3 style="background: #e9ecef; padding: 6px 12px; border-radius: 4px; margin-bottom: 10px; color: #495057;">
@@ -169,7 +175,7 @@ function renderSchedules() {
   `).join('');
 }
 
-// 6. Active Notification Loop
+// 6. Background Notification Loop (Evaluates every 15 seconds)
 setInterval(() => {
   if (Notification.permission !== "granted") return;
 
@@ -181,9 +187,10 @@ setInterval(() => {
 
     const diffMs = new Date(item.isoTimestamp).getTime() - now;
 
+    // Fires 15 minutes before event start time
     if (diffMs <= 15 * 60 * 1000 && diffMs > -5 * 60 * 1000) {
-      new Notification(`🚨 Daily Plan Alert: ${item.company}`, {
-        body: `${item.title} starts in 15 mins (${item.time}) - Duration: ${item.duration}`,
+      new Notification(`🚨 Placement Alert: ${item.company}`, {
+        body: `${item.title} starts in 15 mins (${item.time}) | Duration: ${item.duration}`,
       });
       item.notified = true;
     }
