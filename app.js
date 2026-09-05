@@ -1,9 +1,9 @@
-// Service Worker Registration
+// Register Service Worker for Background Notifications
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('./firebase-messaging-sw.js')
-      .then(reg => console.log('Service Worker registered:', reg.scope))
-      .catch(err => console.warn('Service Worker failed:', err));
+      .then(reg => console.log('Service Worker registered successfully:', reg.scope))
+      .catch(err => console.warn('Service Worker registration skipped or failed:', err));
   });
 }
 
@@ -30,15 +30,15 @@ window.requestNotificationPermission = async function() {
 
   const permission = await Notification.requestPermission();
   if (permission === "granted") {
-    new Notification("🔔 Notifications Active!", {
-      body: "You will receive desktop alerts for all upcoming placement events.",
+    new Notification("🔔 Daily Schedule Alerts Active!", {
+      body: "You will now be notified 15 minutes prior to scheduled events.",
     });
   } else {
-    alert("Permissions denied. Enable notifications in browser settings.");
+    alert("Notification permissions were denied. Please enable them in your browser settings.");
   }
 };
 
-// 3. Extract & Save Schedule (With Conflict Checking)
+// 3. Extract & Save Schedule (Smart Date/Time Parsing)
 window.extractSchedule = async function() {
   const apiKeyInput = document.getElementById('apiKeyInput');
   const noticeInput = document.getElementById('noticeInput');
@@ -52,6 +52,7 @@ window.extractSchedule = async function() {
   }
 
   let newSchedule = null;
+  const currentIsoTime = new Date().toISOString();
 
   if (apiKey) {
     try {
@@ -61,7 +62,9 @@ window.extractSchedule = async function() {
         body: JSON.stringify({
           contents: [{
             parts: [{
-              text: `Extract key placement event info from this notice into valid JSON only. Format: {"company": "Name", "title": "Event/Role Name", "time": "Time/Date"}.\n\nNotice:\n${noticeText}`
+              text: `Extract key placement event info from this notice into valid JSON only. Current time context is ${currentIsoTime}. 
+              Format: {"company": "Name", "title": "Event/Role Name", "time": "Readable Time Display", "isoTimestamp": "YYYY-MM-THH:mm:ss"}. 
+              Convert relative terms like "today", "tomorrow", or specific times into an accurate ISO-8601 string in local time.\n\nNotice:\n${noticeText}`
             }]
           }]
         })
@@ -78,6 +81,7 @@ window.extractSchedule = async function() {
             company: parsed.company || "Placement Company",
             title: parsed.title || "Placement Event",
             time: parsed.time || "Scheduled Time",
+            isoTimestamp: parsed.isoTimestamp || null,
             notified: false
           };
         }
@@ -87,7 +91,7 @@ window.extractSchedule = async function() {
     }
   }
 
-  // Fallback parsing
+  // Basic fallback parser if API is unavailable
   if (!newSchedule) {
     const compMatch = noticeText.match(/Company:\s*(.*)/i);
     const eventMatch = noticeText.match(/Event:\s*(.*)/i);
@@ -98,36 +102,33 @@ window.extractSchedule = async function() {
       company: compMatch ? compMatch[1] : "Test Corp AI",
       title: eventMatch ? eventMatch[1] : "Live System Test",
       time: timeMatch ? timeMatch[1] : "Upcoming",
+      isoTimestamp: null,
       notified: false
     };
   }
 
   const existingSchedules = JSON.parse(localStorage.getItem("placementSchedules") || "[]");
 
-  // --- CONFLICT DETECTION LOGIC ---
-  const conflict = existingSchedules.find(item => item.time.toLowerCase() === newSchedule.time.toLowerCase());
+  // Conflict Detection Logic (Checks exact ISO time or matching time string)
+  const conflict = existingSchedules.find(item => 
+    (item.isoTimestamp && newSchedule.isoTimestamp && item.isoTimestamp === newSchedule.isoTimestamp) ||
+    (item.time.toLowerCase() === newSchedule.time.toLowerCase())
+  );
   
   if (conflict) {
-    const proceed = confirm(`⚠️ SCHEDULE CONFLICT DETECTED!\n\nYou already have "${conflict.company} - ${conflict.title}" scheduled at ${conflict.time}.\n\nDo you still want to add this event?`);
+    const proceed = confirm(`⚠️ SCHEDULE CONFLICT DETECTED!\n\nYou already have "${conflict.company} - ${conflict.title}" scheduled around ${conflict.time}.\n\nDo you still want to add this event?`);
     if (!proceed) return;
   }
 
   existingSchedules.push(newSchedule);
   localStorage.setItem("placementSchedules", JSON.stringify(existingSchedules));
 
-  // Trigger Immediate Notification Alert
-  if (Notification.permission === "granted") {
-    new Notification(`📌 New Schedule Added: ${newSchedule.company}`, {
-      body: `${newSchedule.title} at ${newSchedule.time}`,
-    });
-  }
-
   noticeInput.value = "";
-  alert("✨ Schedule Saved Successfully!");
+  alert("✨ Schedule Saved Successfully with Daily Reminders!");
   renderSchedules();
 };
 
-// 4. Delete Schedule Entry
+// 4. Delete Individual Schedule Item
 window.deleteSchedule = function(id) {
   let schedules = JSON.parse(localStorage.getItem("placementSchedules") || "[]");
   schedules = schedules.filter(item => item.id !== id);
@@ -135,7 +136,7 @@ window.deleteSchedule = function(id) {
   renderSchedules();
 };
 
-// 5. Render Schedules
+// 5. Render Schedule List
 function renderSchedules() {
   const scheduleList = document.getElementById('scheduleList');
   if (!scheduleList) return;
@@ -158,23 +159,40 @@ function renderSchedules() {
   `).join('');
 }
 
-// 6. Active Notification Interval Trigger (Runs every 10 seconds)
+// 6. Real-Time Daily Notification Loop (Runs every 30 seconds)
 setInterval(() => {
   if (Notification.permission !== "granted") return;
 
   const schedules = JSON.parse(localStorage.getItem("placementSchedules") || "[]");
+  const now = new Date().getTime();
+
   schedules.forEach(item => {
-    if (!item.notified) {
-      new Notification(`🚨 Placement Alert: ${item.company}`, {
-        body: `${item.title} is scheduled for ${item.time}`,
+    if (item.notified) return;
+
+    if (item.isoTimestamp) {
+      const eventTime = new Date(item.isoTimestamp).getTime();
+      const timeDifference = eventTime - now;
+
+      // Triggers alert if the event is within 15 minutes (900,000 ms) and hasn't passed
+      if (timeDifference <= 15 * 60 * 1000 && timeDifference > -5 * 60 * 1000) {
+        new Notification(`🚨 Upcoming Placement Alert: ${item.company}`, {
+          body: `${item.title} starts in 15 minutes (${item.time})!`,
+        });
+        item.notified = true;
+      }
+    } else {
+      // Immediate alert fallback if timestamp parsing was unavailable
+      new Notification(`📌 New Schedule Logged: ${item.company}`, {
+        body: `${item.title} scheduled for ${item.time}`,
       });
       item.notified = true;
     }
   });
-  localStorage.setItem("placementSchedules", JSON.stringify(schedules));
-}, 10000);
 
-// Initialize Page Data
+  localStorage.setItem("placementSchedules", JSON.stringify(schedules));
+}, 30000);
+
+// Restore Key & Data on DOM Ready
 document.addEventListener('DOMContentLoaded', () => {
   const apiKeyInput = document.getElementById('apiKeyInput');
   if (apiKeyInput) {
