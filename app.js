@@ -1,16 +1,30 @@
 let schedules = JSON.parse(localStorage.getItem("schedules")) || [];
 let notifiedIds = new Set();
 
-// 1. Save and Load API Key automatically via LocalStorage
+// 1. Masked Key Handling & Storage
 function saveApiKey() {
   const key = document.getElementById("apiKey").value.trim();
-  localStorage.setItem("gemini_api_key", key);
+  if (key) {
+    localStorage.setItem("gemini_api_key", key);
+  }
 }
 
 function loadApiKey() {
   const savedKey = localStorage.getItem("gemini_api_key");
   if (savedKey) {
     document.getElementById("apiKey").value = savedKey;
+  }
+}
+
+function toggleApiKeyVisibility() {
+  const input = document.getElementById("apiKey");
+  const btn = document.getElementById("toggleBtn");
+  if (input.type === "password") {
+    input.type = "text";
+    btn.innerText = "🙈 Hide";
+  } else {
+    input.type = "password";
+    btn.innerText = "👁️ Show";
   }
 }
 
@@ -28,7 +42,7 @@ async function requestNotificationAccess() {
   }
 }
 
-// 3. AI Parsing using Gemini 3.6 Flash & Structured JSON Schema
+// 3. AI Parsing using Gemini 3.6 Flash
 async function addScheduleWithAI() {
   const apiKey = document.getElementById("apiKey").value.trim();
   const rawText = document.getElementById("rawInput").value.trim();
@@ -41,8 +55,6 @@ async function addScheduleWithAI() {
   btn.disabled = true;
 
   const endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent";
-
-  // Using local time reference to prevent UTC offset shifts
   const nowLocal = new Date().toString();
 
   const systemPrompt = `Extract schedule details from this placement notice.
@@ -50,8 +62,8 @@ Current local user time reference: ${nowLocal}.
 Return a JSON object with:
 - company: Company name (string)
 - roundType: Event/Round name (string)
-- startTimeISO: The exact scheduled start date and time formatted as a valid ISO string (e.g. "2026-09-05T12:20:00") matching the user's local day/time context.
-- durationMinutes: Estimated duration in minutes (integer, default 60 if unspecified).
+- startTimeISO: The exact scheduled start date and time formatted as a valid ISO string (e.g. "2026-09-05T12:20:00") matching local time.
+- durationMinutes: Estimated duration in minutes (integer, default 60).
 - link: Test/Meeting URL (string, "" if missing)
 - rules: An array of key rules or requirements extracted`;
 
@@ -88,8 +100,6 @@ Return a JSON object with:
     if (!response.ok) throw new Error(data.error?.message || "Parsing error");
 
     const parsedResult = JSON.parse(data.candidates[0].content.parts[0].text);
-    
-    // Convert exact target local ISO string to epoch milliseconds
     const startMs = new Date(parsedResult.startTimeISO).getTime();
     const endMs = startMs + ((parsedResult.durationMinutes || 60) * 60000);
 
@@ -178,7 +188,7 @@ function renderDailyDigest(forceShow) {
   }
 }
 
-// 7. Render Schedule List with Delete Buttons & Conflict Indicators
+// 7. Render Schedule List with Delete Buttons
 function renderSchedules() {
   const listDiv = document.getElementById("scheduleList");
   listDiv.innerHTML = "";
