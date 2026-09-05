@@ -18,11 +18,11 @@ window.requestNotificationPermission = async function() {
   if (!("Notification" in window)) return alert("Notifications not supported.");
   const permission = await Notification.requestPermission();
   if (permission === "granted") {
-    new Notification("🔔 Daily Alerts Active!", { body: "You will be alerted before scheduled events." });
+    new Notification("🔔 Daily Planner Active!", { body: "Your daily schedule is ready and tracking alerts." });
   }
 };
 
-// 3. Extract & Save Schedule with Overlap Conflict Checks
+// 3. Extract Schedule with Duration and Daily Date Context
 window.extractSchedule = async function() {
   const apiKey = (document.getElementById('apiKeyInput')?.value || '').trim();
   const noticeText = (document.getElementById('noticeInput')?.value || '').trim();
@@ -41,8 +41,8 @@ window.extractSchedule = async function() {
           contents: [{
             parts: [{
               text: `Extract key placement event info from this notice into valid JSON only. Current time context is ${currentIsoTime}. 
-              Format: {"company": "Name", "title": "Event/Role Name", "displayDate": "YYYY-MM-DD", "displayTime": "HH:MM AM/PM", "isoTimestamp": "YYYY-MM-THH:mm:ss"}. 
-              Convert relative dates like "today", "tomorrow" into accurate ISO timestamps and explicit YYYY-MM-DD date strings.\n\nNotice:\n${noticeText}`
+              Format: {"company": "Name", "title": "Event/Role Name", "displayDate": "YYYY-MM-DD", "displayTime": "HH:MM AM/PM", "duration": "e.g. 45 mins / 2 hours", "isoTimestamp": "YYYY-MM-THH:mm:ss"}. 
+              Extract or estimate duration if mentioned, and convert relative dates like "today" or "tomorrow" into accurate YYYY-MM-DD dates.\n\nNotice:\n${noticeText}`
             }]
           }]
         })
@@ -60,6 +60,7 @@ window.extractSchedule = async function() {
             title: parsed.title || "Placement Event",
             date: parsed.displayDate || new Date().toISOString().split('T')[0],
             time: parsed.displayTime || "Scheduled Time",
+            duration: parsed.duration || "N/A",
             isoTimestamp: parsed.isoTimestamp || new Date().toISOString(),
             notified: false
           };
@@ -75,14 +76,15 @@ window.extractSchedule = async function() {
     const compMatch = noticeText.match(/Company:\s*(.*)/i);
     const eventMatch = noticeText.match(/Event:\s*(.*)/i);
     const timeMatch = noticeText.match(/Time:\s*(.*)/i);
+    const durMatch = noticeText.match(/Duration:\s*(.*)/i);
 
-    const todayStr = new Date().toISOString().split('T')[0];
     newSchedule = {
       id: Date.now(),
       company: compMatch ? compMatch[1] : "Test Corp AI",
       title: eventMatch ? eventMatch[1] : "Placement Event",
-      date: todayStr,
+      date: new Date().toISOString().split('T')[0],
       time: timeMatch ? timeMatch[1] : "Upcoming",
+      duration: durMatch ? durMatch[1] : "N/A",
       isoTimestamp: new Date().toISOString(),
       notified: false
     };
@@ -90,20 +92,19 @@ window.extractSchedule = async function() {
 
   const existingSchedules = JSON.parse(localStorage.getItem("placementSchedules") || "[]");
 
-  // --- SMART CONFLICT DETECTION (Within 15 Minutes) ---
+  // Conflict Detection (Within 15 minutes)
   const newTimeMs = new Date(newSchedule.isoTimestamp).getTime();
   let hasConflict = false;
 
   const overlappingEvent = existingSchedules.find(item => {
     if (!item.isoTimestamp) return false;
     const existingTimeMs = new Date(item.isoTimestamp).getTime();
-    const diffInMinutes = Math.abs(newTimeMs - existingTimeMs) / (1000 * 60);
-    return diffInMinutes <= 15; // Flags anything scheduled within 15 mins of each other
+    return Math.abs(newTimeMs - existingTimeMs) / (1000 * 60) <= 15;
   });
 
   if (overlappingEvent) {
     hasConflict = true;
-    const proceed = confirm(`⚠️ TIMING CONFLICT DETECTED!\n\n"${newSchedule.company}" (${newSchedule.time}) is within 15 minutes of "${overlappingEvent.company}" (${overlappingEvent.time}).\n\nDo you still want to save it?`);
+    const proceed = confirm(`⚠️ TIMING CONFLICT DETECTED!\n\n"${newSchedule.company}" (${newSchedule.time}) overlaps with "${overlappingEvent.company}" (${overlappingEvent.time}).\n\nSave anyway?`);
     if (!proceed) return;
   }
 
@@ -112,7 +113,7 @@ window.extractSchedule = async function() {
   localStorage.setItem("placementSchedules", JSON.stringify(existingSchedules));
 
   document.getElementById('noticeInput').value = "";
-  alert("✨ Schedule Saved!");
+  alert("✨ Schedule Added to Daily Agenda!");
   renderSchedules();
 };
 
@@ -124,33 +125,51 @@ window.deleteSchedule = function(id) {
   renderSchedules();
 };
 
-// 5. Render Schedule with Date and Conflict Indicators
+// 5. Render Daily Plan Layout Grouped by Date
 function renderSchedules() {
   const scheduleList = document.getElementById('scheduleList');
   if (!scheduleList) return;
 
   const schedules = JSON.parse(localStorage.getItem("placementSchedules") || "[]");
-  
+
   if (schedules.length === 0) {
-    scheduleList.innerHTML = "<p>No upcoming schedules saved yet.</p>";
+    scheduleList.innerHTML = "<p>No daily activity planned yet.</p>";
     return;
   }
 
-  scheduleList.innerHTML = schedules.map(item => `
-    <div style="border: 1px solid ${item.hasConflict ? '#ffc107' : '#ccc'}; padding: 12px; margin-bottom: 10px; border-radius: 6px; background: ${item.hasConflict ? '#fff9e6' : '#fff'};">
-      <div style="display: flex; justify-content: space-between; align-items: center;">
-        <div><strong>🏢 ${item.company}</strong> - ${item.title}</div>
-        ${item.hasConflict ? '<span style="background: #ffc107; color: #000; font-size: 11px; padding: 2px 6px; border-radius: 4px; font-weight: bold;">⚠️ Schedule Conflict</span>' : ''}
-      </div>
-      <div style="margin-top: 4px; color: #555;">📅 Date: <strong>${item.date || 'Today'}</strong> | ⏰ Time: <strong>${item.time}</strong></div>
-      <button onclick="deleteSchedule(${item.id})" style="background-color: #dc3545; color: white; padding: 5px 10px; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; margin-top: 8px;">
-        🗑️ Delete Entry
-      </button>
+  // Group schedules by Date
+  const groupedSchedules = schedules.reduce((acc, item) => {
+    const key = item.date || "Unscheduled Date";
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(item);
+    return acc;
+  }, {});
+
+  // Render Daily Agendas
+  scheduleList.innerHTML = Object.keys(groupedSchedules).sort().map(date => `
+    <div style="margin-bottom: 20px;">
+      <h3 style="background: #e9ecef; padding: 6px 12px; border-radius: 4px; margin-bottom: 10px; color: #495057;">
+        📅 Agenda for ${date}
+      </h3>
+      ${groupedSchedules[date].map(item => `
+        <div style="border: 1px solid ${item.hasConflict ? '#ffc107' : '#ccc'}; padding: 12px; margin-bottom: 8px; border-radius: 6px; background: ${item.hasConflict ? '#fff9e6' : '#fff'};">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div><strong>🏢 ${item.company}</strong> - ${item.title}</div>
+            ${item.hasConflict ? '<span style="background: #ffc107; color: #000; font-size: 11px; padding: 2px 6px; border-radius: 4px; font-weight: bold;">⚠️ Conflict</span>' : ''}
+          </div>
+          <div style="margin-top: 6px; color: #555; font-size: 13px;">
+            ⏰ <strong>Time:</strong> ${item.time} &nbsp;|&nbsp; ⏳ <strong>Duration:</strong> ${item.duration}
+          </div>
+          <button onclick="deleteSchedule(${item.id})" style="background-color: #dc3545; color: white; padding: 4px 8px; border: none; border-radius: 4px; cursor: pointer; font-size: 11px; margin-top: 8px;">
+            🗑️ Delete Entry
+          </button>
+        </div>
+      `).join('')}
     </div>
   `).join('');
 }
 
-// 6. Active Background Notification Loop
+// 6. Active Notification Loop
 setInterval(() => {
   if (Notification.permission !== "granted") return;
 
@@ -160,13 +179,11 @@ setInterval(() => {
   schedules.forEach(item => {
     if (item.notified || !item.isoTimestamp) return;
 
-    const eventTime = new Date(item.isoTimestamp).getTime();
-    const diffMs = eventTime - now;
+    const diffMs = new Date(item.isoTimestamp).getTime() - now;
 
-    // Trigger notification if within 15 minutes of event
     if (diffMs <= 15 * 60 * 1000 && diffMs > -5 * 60 * 1000) {
-      new Notification(`🚨 Upcoming Placement Alert: ${item.company}`, {
-        body: `${item.title} is scheduled for ${item.time} on ${item.date}!`,
+      new Notification(`🚨 Daily Plan Alert: ${item.company}`, {
+        body: `${item.title} starts in 15 mins (${item.time}) - Duration: ${item.duration}`,
       });
       item.notified = true;
     }
