@@ -61,6 +61,7 @@
       padding: 8px 14px;
       border-radius: 4px;
       cursor: pointer;
+      white-space: nowrap;
     }
     .checklist {
       margin-top: 12px;
@@ -83,10 +84,10 @@
   <div class="card">
     <label for="apiKey"><strong>Gemini API Key:</strong></label>
     <div class="input-group">
-      <input type="password" id="apiKey" placeholder="Paste Gemini API key..." onblur="saveApiKey()" />
-      <button class="btn-secondary" onclick="toggleApiKeyVisibility()" id="toggleBtn">👁️ Show</button>
+      <input type="password" id="apiKey" placeholder="Paste Gemini API key..." onblur="saveApiKey()" autocomplete="off" />
+      <button class="btn-secondary" onclick="toggleApiKeyVisibility()" id="toggleBtn" type="button">👁️ Show</button>
     </div>
-    <button class="btn-secondary" onclick="requestNotificationAccess()">🔔 Enable Desktop Notifications</button>
+    <button class="btn-secondary" onclick="requestNotificationAccess()" type="button">🔔 Enable Desktop Notifications</button>
   </div>
 
   <!-- Raw Notice Input -->
