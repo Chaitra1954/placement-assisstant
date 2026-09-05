@@ -178,7 +178,7 @@ function renderDailyDigest(forceShow) {
   }
 }
 
-// 7. Render Schedule List with Conflict Indicators, Rules, & Delete Buttons
+// 7. Render Schedule List with Delete Buttons & Conflict Indicators
 function renderSchedules() {
   const listDiv = document.getElementById("scheduleList");
   listDiv.innerHTML = "";
@@ -203,10 +203,11 @@ function renderSchedules() {
         📅 Start: ${startStr}<br>
         🔗 ${item.link && item.link !== "#" ? `<a href="${item.link}" target="_blank">Open Event Link</a>` : "No link found"}
         ${rulesHtml}
-        <br>
-        <button onclick="deleteSchedule(${item.id})" style="background-color: #ff4d4d; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; margin-top: 8px; font-weight: bold;">
-          🗑️ Delete Event
-        </button>
+        <div style="margin-top: 15px; border-top: 1px solid #eee; padding-top: 10px;">
+          <button onclick="deleteSchedule(${item.id})" style="background-color: #e74c3c; color: white; border: none; padding: 8px 14px; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 13px;">
+            🗑️ Delete Event
+          </button>
+        </div>
       </div>
     `;
   });
