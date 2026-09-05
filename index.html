@@ -1,47 +1,37 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <!-- Firebase SDKs -->
-<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AI Placement Schedule Assistant</title>
-  <style>
-    body { font-family: Arial, sans-serif; margin: 20px; background-color: #f4f6f8; color: #333; }
-    .card { background: #fff; padding: 20px; margin-bottom: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-    button { padding: 10px 15px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; margin-top: 10px; }
-    .btn-primary { background-color: #332fd0; color: white; }
-    .btn-success { background-color: #28a745; color: white; }
-    input[type="text"], input[type="password"], textarea { width: 100%; padding: 10px; margin-top: 8px; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box; }
-    textarea { height: 100px; resize: vertical; }
-  </style>
+  <title>Placement Agenda Sync</title>
+
+  <!-- Firebase Compatibility SDKs -->
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 </head>
-<body>
+<body style="font-family: sans-serif; padding: 20px; max-width: 600px; margin: auto;">
 
-  <h1>🎓 AI Placement Schedule Assistant</h1>
+  <h2>🏢 Placement Agenda Manager</h2>
 
-  <!-- API Key & Notification Setup -->
-  <div class="card">
-    <label for="apiKeyInput"><strong>Gemini API Key:</strong></label>
-    <div style="display: flex; gap: 10px;">
-      <input type="password" id="apiKeyInput" placeholder="Paste your Gemini API Key here...">
-      <button id="toggleApiKeyBtn" type="button" class="btn-primary" onclick="toggleApiKey()">👁️ Show</button>
-    </div>
-    <button type="button" class="btn-primary" onclick="requestNotificationPermission()">🔔 Enable Desktop Notifications</button>
+  <div style="margin-bottom: 15px;">
+    <label><strong>Gemini API Key:</strong></label><br>
+    <input type="password" id="apiKeyInput" placeholder="Paste Gemini API Key" style="width: 70%; padding: 8px;">
+    <button id="toggleApiKeyBtn" onclick="toggleApiKey()">👁️ Show</button>
   </div>
 
-  <!-- Raw Notice Input -->
-  <div class="card">
-    <label for="noticeInput"><strong>Paste Placement Notice / Email:</strong></label>
-    <textarea id="noticeInput" placeholder="Paste company notice text here..."></textarea>
-    <button type="button" class="btn-success" onclick="extractSchedule()">✨ Extract & Save Schedule</button>
+  <div style="margin-bottom: 15px;">
+    <label><strong>Paste Placement Notice:</strong></label><br>
+    <textarea id="noticeInput" rows="6" style="width: 100%; padding: 8px;" placeholder="Paste email or text notice here..."></textarea>
   </div>
 
-  <!-- Schedule Display List -->
-  <h2>📅 Upcoming Schedule & Tasks</h2>
-  <div id="scheduleList" class="card">
-    <p>No upcoming schedules saved yet.</p>
+  <button onclick="extractSchedule()" style="background: #0d6efd; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; width: 100%;">
+    ✨ Extract Schedule
+  </button>
+
+  <hr style="margin: 20px 0;">
+
+  <div id="scheduleList">
+    <p>Loading scheduled items...</p>
   </div>
 
   <script src="app.js"></script>
