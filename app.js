@@ -1,19 +1,47 @@
-let schedules = JSON.parse(localStorage.getItem("schedules")) || [];
+// 1. Firebase Initialization with your Project Credentials
+const firebaseConfig = {
+  apiKey: "AIzaSyDeie-hnqSsqlHjDr_gOyO7Sjc3dAr-I60",
+  authDomain: "placement-assistant-bc0e5.firebaseapp.com",
+  projectId: "placement-assistant-bc0e5",
+  storageBucket: "placement-assistant-bc0e5.firebasestorage.app",
+  messagingSenderId: "139614386732",
+  appId: "1:139614386732:web:59961b88f1a687b9a0ef89",
+  measurementId: "G-817L5QV1FE"
+};
+
+// Initialize Firebase & Firestore Services
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+if (typeof firebase.analytics === "function") {
+  firebase.analytics();
+}
+
+let schedules = [];
 let notifiedIds = new Set();
 
-// 1. Masked Key Handling & Storage
+// 2. Real-Time Cloud Listener (Syncs changes across devices automatically)
+db.collection("schedules").onSnapshot((snapshot) => {
+  schedules = snapshot.docs.map(doc => ({
+    id: doc.id,
+    ...doc.data()
+  }));
+  renderSchedules();
+  renderDailyDigest(false);
+}, (error) => {
+  console.error("Firestore synchronization error:", error);
+});
+
+// 3. API Key Management & Masking Functionality
 function saveApiKey() {
   const key = document.getElementById("apiKey").value.trim();
-  if (key) {
-    localStorage.setItem("gemini_api_key", key);
-  }
+  if (key) localStorage.setItem("gemini_api_key", key);
 }
 
 function loadApiKey() {
   const savedKey = localStorage.getItem("gemini_api_key");
   const input = document.getElementById("apiKey");
   if (savedKey && input) {
-    input.type = "password"; // Force password masking on startup
+    input.type = "password";
     input.value = savedKey;
   }
 }
@@ -30,7 +58,7 @@ function toggleApiKeyVisibility() {
   }
 }
 
-// 2. Request Desktop Notification Permission
+// 4. Request Desktop Notifications
 async function requestNotificationAccess() {
   if (!("Notification" in window)) {
     alert("This browser does not support desktop notifications.");
@@ -44,7 +72,7 @@ async function requestNotificationAccess() {
   }
 }
 
-// 3. AI Parsing using Gemini 3.6 Flash
+// 5. AI Parser & Direct Cloud Writer
 async function addScheduleWithAI() {
   const apiKey = document.getElementById("apiKey").value.trim();
   const rawText = document.getElementById("rawInput").value.trim();
@@ -53,7 +81,7 @@ async function addScheduleWithAI() {
   if (!apiKey) return alert("Please enter your Gemini API Key!");
   if (!rawText) return alert("Please paste the placement notice text!");
 
-  btn.innerText = "Parsing & Extracting Rules...";
+  btn.innerText = "Parsing & Saving to Cloud...";
   btn.disabled = true;
 
   const endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent";
@@ -106,32 +134,30 @@ Return a JSON object with:
     const endMs = startMs + ((parsedResult.durationMinutes || 60) * 60000);
 
     const newEvent = {
-      id: Date.now(),
       company: parsedResult.company || "Company",
       roundType: parsedResult.roundType || "Placement Event",
       link: parsedResult.link || "#",
       startTime: startMs,
       endTime: endMs,
-      rules: parsedResult.rules || []
+      rules: parsedResult.rules || [],
+      createdAt: Date.now()
     };
 
-    schedules.push(newEvent);
-    localStorage.setItem("schedules", JSON.stringify(schedules));
+    // Save directly to Firebase Firestore Cloud Database
+    await db.collection("schedules").add(newEvent);
+
     document.getElementById("rawInput").value = "";
-    
-    renderSchedules();
-    renderDailyDigest(false);
-    alert(`Added: ${newEvent.company} (${newEvent.roundType})`);
+    alert(`Saved to Cloud: ${newEvent.company} (${newEvent.roundType})`);
 
   } catch (err) {
-    alert("Parsing Error: " + err.message);
+    alert("Error: " + err.message);
   } finally {
     btn.innerText = "✨ Extract & Save Schedule";
     btn.disabled = false;
   }
 }
 
-// 4. Overlap/Conflict Engine
+// 6. Overlap/Conflict Engine
 function checkConflicts(event, index) {
   for (let i = 0; i < schedules.length; i++) {
     if (i === index) continue;
@@ -143,15 +169,16 @@ function checkConflicts(event, index) {
   return false;
 }
 
-// 5. Delete Event Function
-function deleteSchedule(id) {
-  schedules = schedules.filter(item => item.id !== id);
-  localStorage.setItem("schedules", JSON.stringify(schedules));
-  renderSchedules();
-  renderDailyDigest(false);
+// 7. Cloud Delete Operation
+async function deleteSchedule(docId) {
+  try {
+    await db.collection("schedules").doc(docId).delete();
+  } catch (err) {
+    alert("Error deleting record from database: " + err.message);
+  }
 }
 
-// 6. Daily Morning Briefing Generator
+// 8. Daily Morning Briefing Generator
 function renderDailyDigest(forceShow) {
   const briefingContainer = document.getElementById("briefingContainer");
   const todayStr = new Date().toDateString();
@@ -179,18 +206,9 @@ function renderDailyDigest(forceShow) {
   html += `</ul>`;
 
   briefingContainer.innerHTML = html;
-
-  const lastNotifiedDay = localStorage.getItem("last_morning_digest_date");
-  if (lastNotifiedDay !== todayStr && Notification.permission === "granted") {
-    new Notification("☀️ Morning Placement Briefing", {
-      body: `You have ${todaysEvents.length} event(s) scheduled for today. Check your dashboard for details!`,
-      requireInteraction: true
-    });
-    localStorage.setItem("last_morning_digest_date", todayStr);
-  }
 }
 
-// 7. Render Schedule List with Delete Buttons
+// 9. Render Schedule List with Cloud Record Keys
 function renderSchedules() {
   const listDiv = document.getElementById("scheduleList");
   listDiv.innerHTML = "";
@@ -216,7 +234,7 @@ function renderSchedules() {
         🔗 ${item.link && item.link !== "#" ? `<a href="${item.link}" target="_blank">Open Event Link</a>` : "No link found"}
         ${rulesHtml}
         <div style="margin-top: 15px; border-top: 1px solid #eee; padding-top: 10px;">
-          <button onclick="deleteSchedule(${item.id})" style="background-color: #e74c3c; color: white; border: none; padding: 8px 14px; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 13px;">
+          <button onclick="deleteSchedule('${item.id}')" style="background-color: #e74c3c; color: white; border: none; padding: 8px 14px; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 13px;">
             🗑️ Delete Event
           </button>
         </div>
@@ -225,7 +243,7 @@ function renderSchedules() {
   });
 }
 
-// 8. Background Loop for 15-Minute Warnings
+// 10. Background Loop for Warnings
 setInterval(() => {
   const now = Date.now();
   schedules.forEach(item => {
@@ -249,5 +267,3 @@ setInterval(() => {
 
 // Initialize on page load
 loadApiKey();
-renderSchedules();
-renderDailyDigest(false);
