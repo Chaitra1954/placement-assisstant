@@ -1,108 +1,101 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AI Placement Tracker & Morning Assistant</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Placement Assistant</title>
   <style>
     body {
-      font-family: Arial, sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      max-width: 800px;
       margin: 30px auto;
-      max-width: 700px;
-      line-height: 1.5;
-      color: #333;
+      padding: 0 20px;
       background-color: #f4f6f8;
+      color: #333;
     }
-    .container {
-      background: white;
-      padding: 25px;
-      border-radius: 10px;
-      box-shadow: 0 4px 10px rgba(0,0,0,0.08);
-    }
-    textarea, input[type="text"], input[type="password"] {
-      width: 100%;
-      margin-bottom: 12px;
-      padding: 10px;
-      box-sizing: border-box;
-      border: 1px solid #ccc;
-      border-radius: 6px;
-    }
-    textarea { height: 120px; resize: vertical; }
-    button {
-      padding: 10px 18px;
-      cursor: pointer;
-      margin-right: 8px;
-      background-color: #0066cc;
-      color: white;
-      border: none;
-      border-radius: 6px;
-      font-weight: bold;
-    }
-    button:hover { background-color: #0052a3; }
-    
-    /* Daily Briefing Banner */
-    .briefing-card {
-      background-color: #eef6ff;
-      border-left: 5px solid #0066cc;
-      padding: 15px;
-      border-radius: 6px;
-      margin-bottom: 20px;
-    }
-    .briefing-card h3 { margin-top: 0; color: #004085; }
-
-    /* Event Card & Conflict Styling */
+    h1 { color: #1a252f; }
     .card {
-      border: 1px solid #e0e0e0;
-      padding: 15px;
+      background: white;
       border-radius: 8px;
-      margin-top: 12px;
-      background-color: #fff;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.04);
-      position: relative;
+      padding: 20px;
+      margin-bottom: 20px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     }
     .card.conflict {
-      border: 2px solid #ff4d4f;
-      background-color: #fff5f5;
+      border-left: 5px solid #e74c3c;
+      background-color: #fdf2f2;
     }
     .badge-conflict {
-      background-color: #ff4d4f;
+      background-color: #e74c3c;
       color: white;
-      padding: 3px 8px;
-      border-radius: 4px;
+      padding: 4px 8px;
       font-size: 12px;
       font-weight: bold;
+      border-radius: 4px;
+    }
+    input[type="text"], textarea {
+      width: 100%;
+      padding: 10px;
+      margin: 8px 0 16px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      box-sizing: border-box;
+    }
+    button.btn-primary {
+      background-color: #2eb85c;
+      color: white;
+      border: none;
+      padding: 10px 18px;
+      border-radius: 4px;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    button.btn-secondary {
+      background-color: #321fdb;
+      color: white;
+      border: none;
+      padding: 8px 14px;
+      border-radius: 4px;
+      cursor: pointer;
+      margin-bottom: 15px;
     }
     .checklist {
-      margin-top: 10px;
-      padding-left: 20px;
-      font-size: 14px;
-      color: #555;
+      margin-top: 12px;
+      background: #f8f9fa;
+      padding: 10px 15px;
+      border-radius: 6px;
+      border: 1px solid #e9ecef;
     }
-    hr { margin: 25px 0; border: 0; border-top: 1px solid #ddd; }
+    .checklist ul {
+      margin: 5px 0 0;
+      padding-left: 20px;
+    }
   </style>
 </head>
 <body>
 
-  <div class="container">
-    <h2>AI Placement Assistant</h2>
-    <button onclick="requestNotificationAccess()">🔔 Enable Desktop Notifications</button>
-    <button onclick="renderDailyDigest(true)">☀️ View Morning Briefing</button>
+  <h1>🎓 AI Placement Schedule Assistant</h1>
 
-    <!-- Morning Briefing Container -->
-    <div id="briefingContainer" style="display: none;" class="briefing-card"></div>
-
-    <hr>
-
+  <!-- API Key & Notification Setup -->
+  <div class="card">
     <label for="apiKey"><strong>Gemini API Key:</strong></label>
-    <input type="password" id="apiKey" placeholder="Paste your AI Studio key here" oninput="saveApiKey()">
-
-    <h3>Parse Placement Notice</h3>
-    <textarea id="rawInput" placeholder="Paste WhatsApp message or email notice here..."></textarea>
-    <button id="parseBtn" onclick="addScheduleWithAI()">✨ Extract & Save Schedule</button>
-
-    <h3>Upcoming Schedule</h3>
-    <div id="scheduleList"></div>
+    <input type="text" id="apiKey" placeholder="Paste your Gemini API key here" onblur="saveApiKey()" />
+    <button class="btn-secondary" onclick="requestNotificationAccess()">🔔 Enable Desktop Notifications</button>
   </div>
+
+  <!-- Raw Notice Input -->
+  <div class="card">
+    <label for="rawInput"><strong>Paste Placement Notice / Email:</strong></label>
+    <textarea id="rawInput" rows="6" placeholder="Paste the notice text containing schedule, company, links, and rules..."></textarea>
+    <button id="parseBtn" class="btn-primary" onclick="addScheduleWithAI()">✨ Extract & Save Schedule</button>
+  </div>
+
+  <!-- Daily Briefing Container -->
+  <div id="briefingContainer" class="card" style="display: none; background-color: #e8f4fe; border-left: 5px solid #321fdb;"></div>
+
+  <!-- Schedule Display List -->
+  <h2>📅 Upcoming Schedule & Tasks</h2>
+  <div id="scheduleList"></div>
 
   <script src="app.js"></script>
 </body>
