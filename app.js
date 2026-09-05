@@ -1,11 +1,28 @@
-// Service Worker Registration for Background Alerts
+// Service Worker Registration for Notifications
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('./firebase-messaging-sw.js').catch(err => console.warn(err));
   });
 }
 
-// 1. Toggle API Key Input Visibility
+// --- FIREBASE CONFIGURATION ---
+// Replace the placeholder object below with your actual Firebase project credentials
+const firebaseConfig = {
+  apiKey: "AIzaSyDeie-hnqSsqlHjDr_gOyO7Sjc3dAr-I60",
+  authDomain: "placement-assistant-bc0e5.firebaseapp.com",
+  projectId: "placement-assistant-bc0e5",
+  storageBucket: "placement-assistant-bc0e5.appspot.com",
+  messagingSenderId: "139614386732",
+  appId: "1:139614386732:web:59961b88f1a687b9a0ef89"
+};
+
+// Initialize Firebase & Firestore
+if (!firebase.apps.length) {
+  firebase.initializeApp(firebaseConfig);
+}
+const db = firebase.firestore();
+
+// 1. Toggle API Key Visibility
 window.toggleApiKey = function() {
   const apiKeyInput = document.getElementById('apiKeyInput');
   const toggleBtn = document.getElementById('toggleApiKeyBtn');
@@ -14,18 +31,18 @@ window.toggleApiKey = function() {
   if (toggleBtn) toggleBtn.textContent = apiKeyInput.type === "password" ? "👁️ Show" : "🙈 Hide";
 };
 
-// 2. Browser Notification Setup
+// 2. Enable Desktop Notifications
 window.requestNotificationPermission = async function() {
   if (!("Notification" in window)) return alert("Desktop notifications are not supported in this browser.");
   const permission = await Notification.requestPermission();
   if (permission === "granted") {
-    new Notification("🔔 Daily Placement Agenda Active!", { body: "You will receive desktop notifications 15 minutes before scheduled events." });
+    new Notification("🔔 Daily Placement Agenda Active!", { body: "You will receive notifications 15 minutes before scheduled events." });
   } else {
     alert("Notification permission denied. Please enable alerts in browser settings.");
   }
 };
 
-// --- TIMEZONE-SAFE DATE HELPER (Prevents 1-day rollback bug) ---
+// --- TIMEZONE-SAFE DATE PARSERS ---
 function getLocalIsoDate(dateObj) {
   const year = dateObj.getFullYear();
   const month = String(dateObj.getMonth() + 1).padStart(2, '0');
@@ -48,7 +65,7 @@ function parseToIsoDate(dateStr) {
   return getLocalIsoDate(new Date());
 }
 
-// 3. Extract Schedule (Gemini LLM + Smart Regex Fallback)
+// 3. Extract Schedule & Sync to Cloud Database
 window.extractSchedule = async function() {
   const apiKey = (document.getElementById('apiKeyInput')?.value || '').trim();
   const noticeText = (document.getElementById('noticeInput')?.value || '').trim();
@@ -58,18 +75,19 @@ window.extractSchedule = async function() {
   let newSchedule = null;
   const currentLocalDate = getLocalIsoDate(new Date());
 
-  // Primary LLM Extraction using Gemini 1.5 Flash
+  // Primary LLM Call using Gemini 3.6 Flash
   if (apiKey) {
     try {
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{
             parts: [{
-              text: `Extract key placement event info from this notice into valid JSON only. Current local date is ${currentLocalDate}. 
-              Format: {"company": "Name", "title": "Event/Role Name", "displayDate": "YYYY-MM-DD", "displayTime": "HH:MM AM/PM", "duration": "e.g. 30 mins / 2 hours", "isoTimestamp": "YYYY-MM-THH:mm:ss"}. 
-              Calculate start time and duration if a time range is provided.\n\nNotice:\n${noticeText}`
+              text: `Extract placement event details from this notice into valid JSON format only. 
+              The current local reference date is ${currentLocalDate}.
+              Format JSON as: {"company": "Company Name", "title": "Event Name", "displayDate": "YYYY-MM-DD", "displayTime": "HH:MM AM/PM", "duration": "e.g. 30 mins / 2 hours", "isoTimestamp": "YYYY-MM-THH:mm:ss"}. 
+              Ensure displayDate matches local date context without timezone rollback.\n\nNotice:\n${noticeText}`
             }]
           }]
         })
@@ -82,7 +100,6 @@ window.extractSchedule = async function() {
         if (jsonMatch) {
           const parsed = JSON.parse(jsonMatch[0]);
           newSchedule = {
-            id: Date.now(),
             company: parsed.company || "Placement Company",
             title: parsed.title || "Placement Event",
             date: parsed.displayDate || currentLocalDate,
@@ -94,11 +111,11 @@ window.extractSchedule = async function() {
         }
       }
     } catch (e) {
-      console.warn("Gemini API call failed, running Fallback Parser:", e);
+      console.warn("Gemini 3.6 Flash API call failed, falling back to regex parser:", e);
     }
   }
 
-  // Fallback Parser for Unstructured Paragraph Text and Lists
+  // Fallback Regex Parser
   if (!newSchedule) {
     const compMatch = noticeText.match(/(?:process of|assessment of|company:)\s*([A-Za-z0-9\s&]+(?:Pvt\.|Ltd\.|Inc\.|Corp)?)/i) || noticeText.match(/(?:Company):\s*(.*)/i);
     const dateMatch = noticeText.match(/(\d{1,2}(?:st|nd|rd|th)?\s+[A-Za-z]{3,9}\s+\d{4})/i) || noticeText.match(/(?:Date):\s*(.*)/i);
@@ -117,7 +134,6 @@ window.extractSchedule = async function() {
     } catch(e) {}
 
     newSchedule = {
-      id: Date.now(),
       company: extractedCompany,
       title: eventMatch ? (eventMatch[1] || eventMatch[0]) : "Placement Assessment",
       date: extractedDate,
@@ -128,9 +144,10 @@ window.extractSchedule = async function() {
     };
   }
 
-  const existingSchedules = JSON.parse(localStorage.getItem("placementSchedules") || "[]");
+  // Conflict Checking against current Firestore entries
+  const snapshot = await db.collection("schedules").get();
+  const existingSchedules = snapshot.docs.map(doc => doc.data());
 
-  // Concurrency Checking (Flags events scheduled within 15 minutes of each other)
   const newTimeMs = new Date(newSchedule.isoTimestamp).getTime();
   let hasConflict = false;
 
@@ -142,102 +159,101 @@ window.extractSchedule = async function() {
 
   if (overlappingEvent) {
     hasConflict = true;
-    const proceed = confirm(`⚠️ TIMING CONFLICT DETECTED!\n\n"${newSchedule.company}" (${newSchedule.time}) is within 15 minutes of "${overlappingEvent.company}" (${overlappingEvent.time}).\n\nDo you still want to add this event?`);
+    const proceed = confirm(`⚠️ TIMING CONFLICT DETECTED!\n\n"${newSchedule.company}" (${newSchedule.time}) is within 15 minutes of "${overlappingEvent.company}" (${overlappingEvent.time}).\n\nDo you still want to save it?`);
     if (!proceed) return;
   }
 
   newSchedule.hasConflict = hasConflict;
-  existingSchedules.push(newSchedule);
-  localStorage.setItem("placementSchedules", JSON.stringify(existingSchedules));
+
+  // Save entry to Firestore Cloud Database
+  await db.collection("schedules").add(newSchedule);
 
   const noticeInput = document.getElementById('noticeInput');
   if (noticeInput) noticeInput.value = "";
-  alert("✨ Event Added to Daily Agenda!");
-  renderSchedules();
+  alert("✨ Event Added & Synced Across All Devices!");
 };
 
-// 4. Delete Entry
-window.deleteSchedule = function(id) {
-  let schedules = JSON.parse(localStorage.getItem("placementSchedules") || "[]");
-  schedules = schedules.filter(item => item.id !== id);
-  localStorage.setItem("placementSchedules", JSON.stringify(schedules));
-  renderSchedules();
+// 4. Delete Entry from Cloud
+window.deleteSchedule = async function(id) {
+  await db.collection("schedules").doc(id).delete();
 };
 
-// 5. Render Daily Agendas Grouped by Date
-function renderSchedules() {
+// 5. Real-Time Cloud Synchronization Listener
+function listenToCloudSchedules() {
   const scheduleList = document.getElementById('scheduleList');
   if (!scheduleList) return;
 
-  const schedules = JSON.parse(localStorage.getItem("placementSchedules") || "[]");
+  // Real-time Firestore sync stream
+  db.collection("schedules").onSnapshot((snapshot) => {
+    const schedules = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-  if (schedules.length === 0) {
-    scheduleList.innerHTML = "<p>No daily activities planned yet.</p>";
-    return;
-  }
+    if (schedules.length === 0) {
+      scheduleList.innerHTML = "<p>No daily activities planned yet.</p>";
+      return;
+    }
 
-  // Group schedules by local Date
-  const groupedSchedules = schedules.reduce((acc, item) => {
-    const key = item.date || "Unscheduled";
-    if (!acc[key]) acc[key] = [];
-    acc[key].push(item);
-    return acc;
-  }, {});
+    // Group schedules by Local Date
+    const groupedSchedules = schedules.reduce((acc, item) => {
+      const key = item.date || "Unscheduled";
+      if (!acc[key]) acc[key] = [];
+      acc[key].push(item);
+      return acc;
+    }, {});
 
-  // Output grouped daily agenda cards
-  scheduleList.innerHTML = Object.keys(groupedSchedules).sort().map(date => `
-    <div style="margin-bottom: 20px;">
-      <h3 style="background: #e9ecef; padding: 6px 12px; border-radius: 4px; margin-bottom: 10px; color: #495057;">
-        📅 Agenda for ${date}
-      </h3>
-      ${groupedSchedules[date].map(item => `
-        <div style="border: 1px solid ${item.hasConflict ? '#ffc107' : '#ccc'}; padding: 12px; margin-bottom: 8px; border-radius: 6px; background: ${item.hasConflict ? '#fff9e6' : '#fff'};">
-          <div style="display: flex; justify-content: space-between; align-items: center;">
-            <div><strong>🏢 ${item.company}</strong> - ${item.title}</div>
-            ${item.hasConflict ? '<span style="background: #ffc107; color: #000; font-size: 11px; padding: 2px 6px; border-radius: 4px; font-weight: bold;">⚠️ Conflict</span>' : ''}
+    // Render multi-device synced layout
+    scheduleList.innerHTML = Object.keys(groupedSchedules).sort().map(date => `
+      <div style="margin-bottom: 20px;">
+        <h3 style="background: #e9ecef; padding: 6px 12px; border-radius: 4px; margin-bottom: 10px; color: #495057;">
+          📅 Agenda for ${date}
+        </h3>
+        ${groupedSchedules[date].map(item => `
+          <div style="border: 1px solid ${item.hasConflict ? '#ffc107' : '#ccc'}; padding: 12px; margin-bottom: 8px; border-radius: 6px; background: ${item.hasConflict ? '#fff9e6' : '#fff'};">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <div><strong>🏢 ${item.company}</strong> - ${item.title}</div>
+              ${item.hasConflict ? '<span style="background: #ffc107; color: #000; font-size: 11px; padding: 2px 6px; border-radius: 4px; font-weight: bold;">⚠️ Conflict</span>' : ''}
+            </div>
+            <div style="margin-top: 6px; color: #555; font-size: 13px;">
+              ⏰ <strong>Time:</strong> ${item.time} &nbsp;|&nbsp; ⏳ <strong>Duration:</strong> ${item.duration}
+            </div>
+            <button onclick="deleteSchedule('${item.id}')" style="background-color: #dc3545; color: white; padding: 4px 8px; border: none; border-radius: 4px; cursor: pointer; font-size: 11px; margin-top: 8px;">
+              🗑️ Delete Entry
+            </button>
           </div>
-          <div style="margin-top: 6px; color: #555; font-size: 13px;">
-            ⏰ <strong>Time:</strong> ${item.time} &nbsp;|&nbsp; ⏳ <strong>Duration:</strong> ${item.duration}
-          </div>
-          <button onclick="deleteSchedule(${item.id})" style="background-color: #dc3545; color: white; padding: 4px 8px; border: none; border-radius: 4px; cursor: pointer; font-size: 11px; margin-top: 8px;">
-            🗑️ Delete Entry
-          </button>
-        </div>
-      `).join('')}
-    </div>
-  `).join('');
+        `).join('')}
+      </div>
+    `).join('');
+  });
 }
 
-// 6. Active Notification Loop (Checks every 15 seconds)
-setInterval(() => {
+// 6. Notification Loop (Runs every 15 seconds)
+setInterval(async () => {
   if (Notification.permission !== "granted") return;
 
-  const schedules = JSON.parse(localStorage.getItem("placementSchedules") || "[]");
+  const snapshot = await db.collection("schedules").get();
   const now = new Date().getTime();
 
-  schedules.forEach(item => {
+  snapshot.docs.forEach(async (doc) => {
+    const item = doc.data();
     if (item.notified || !item.isoTimestamp) return;
 
     const diffMs = new Date(item.isoTimestamp).getTime() - now;
 
-    // Triggers desktop alert 15 minutes prior to scheduled start time
     if (diffMs <= 15 * 60 * 1000 && diffMs > -5 * 60 * 1000) {
       new Notification(`🚨 Placement Alert: ${item.company}`, {
         body: `${item.title} starts in 15 mins (${item.time}) | Duration: ${item.duration}`,
       });
-      item.notified = true;
+      // Mark as notified in cloud
+      await db.collection("schedules").doc(doc.id).update({ notified: true });
     }
   });
-
-  localStorage.setItem("placementSchedules", JSON.stringify(schedules));
 }, 15000);
 
-// Initialize State
+// Initialize App & Cloud Stream
 document.addEventListener('DOMContentLoaded', () => {
   const apiKeyInput = document.getElementById('apiKeyInput');
   if (apiKeyInput) {
     apiKeyInput.value = localStorage.getItem('geminiApiKey') || '';
     apiKeyInput.addEventListener('input', (e) => localStorage.setItem('geminiApiKey', e.target.value.trim()));
   }
-  renderSchedules();
+  listenToCloudSchedules();
 });
