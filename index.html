@@ -1,79 +1,17 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>AI Placement Assistant</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Placement Schedule Assistant</title>
   <style>
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      max-width: 800px;
-      margin: 30px auto;
-      padding: 0 20px;
-      background-color: #f4f6f8;
-      color: #333;
-    }
-    h1 { color: #1a252f; }
-    .card {
-      background: white;
-      border-radius: 8px;
-      padding: 20px;
-      margin-bottom: 20px;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    }
-    .card.conflict {
-      border-left: 5px solid #e74c3c;
-      background-color: #fdf2f2;
-    }
-    .badge-conflict {
-      background-color: #e74c3c;
-      color: white;
-      padding: 4px 8px;
-      font-size: 12px;
-      font-weight: bold;
-      border-radius: 4px;
-    }
-    .input-group {
-      display: flex;
-      gap: 10px;
-      margin: 8px 0 16px;
-    }
-    input[type="text"], input[type="password"], textarea {
-      width: 100%;
-      padding: 10px;
-      border: 1px solid #ccc;
-      border-radius: 4px;
-      box-sizing: border-box;
-    }
-    button.btn-primary {
-      background-color: #2eb85c;
-      color: white;
-      border: none;
-      padding: 10px 18px;
-      border-radius: 4px;
-      font-weight: bold;
-      cursor: pointer;
-    }
-    button.btn-secondary {
-      background-color: #321fdb;
-      color: white;
-      border: none;
-      padding: 8px 14px;
-      border-radius: 4px;
-      cursor: pointer;
-      white-space: nowrap;
-    }
-    .checklist {
-      margin-top: 12px;
-      background: #f8f9fa;
-      padding: 10px 15px;
-      border-radius: 6px;
-      border: 1px solid #e9ecef;
-    }
-    .checklist ul {
-      margin: 5px 0 0;
-      padding-left: 20px;
-    }
+    body { font-family: Arial, sans-serif; margin: 20px; background-color: #f4f6f8; color: #333; }
+    .card { background: #fff; padding: 20px; margin-bottom: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    button { padding: 10px 15px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; margin-top: 10px; }
+    .btn-primary { background-color: #332fd0; color: white; }
+    .btn-success { background-color: #28a745; color: white; }
+    input[type="text"], input[type="password"], textarea { width: 100%; padding: 10px; margin-top: 8px; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box; }
+    textarea { height: 100px; resize: vertical; }
   </style>
 </head>
 <body>
@@ -82,34 +20,27 @@
 
   <!-- API Key & Notification Setup -->
   <div class="card">
-    <label for="apiKey"><strong>Gemini API Key:</strong></label>
-    <div class="input-group">
-      <input type="password" id="apiKey" placeholder="Paste Gemini API key..." onblur="saveApiKey()" autocomplete="off" />
-      <button class="btn-secondary" onclick="toggleApiKeyVisibility()" id="toggleBtn" type="button">👁️ Show</button>
+    <label for="apiKeyInput"><strong>Gemini API Key:</strong></label>
+    <div style="display: flex; gap: 10px;">
+      <input type="password" id="apiKeyInput" placeholder="Paste your Gemini API Key here...">
+      <button id="toggleApiKeyBtn" class="btn-primary" onclick="toggleApiKey()">👁️ Show</button>
     </div>
-    <button class="btn-secondary" onclick="requestNotificationAccess()" type="button">🔔 Enable Desktop Notifications</button>
+    <button class="btn-primary" onclick="requestNotificationPermission()">🔔 Enable Desktop Notifications</button>
   </div>
 
   <!-- Raw Notice Input -->
   <div class="card">
-    <label for="rawInput"><strong>Paste Placement Notice / Email:</strong></label>
-    <textarea id="rawInput" rows="6" placeholder="Paste notice containing schedule, company, links, and rules..."></textarea>
-    <button id="parseBtn" class="btn-primary" onclick="addScheduleWithAI()">✨ Extract & Save Schedule</button>
+    <label for="noticeInput"><strong>Paste Placement Notice / Email:</strong></label>
+    <textarea id="noticeInput" placeholder="Paste company notice text here..."></textarea>
+    <button class="btn-success" onclick="extractSchedule()">✨ Extract & Save Schedule</button>
   </div>
-
-  <!-- Daily Briefing Container -->
-  <div id="briefingContainer" class="card" style="display: none; background-color: #e8f4fe; border-left: 5px solid #321fdb;"></div>
 
   <!-- Schedule Display List -->
   <h2>📅 Upcoming Schedule & Tasks</h2>
-  <div id="scheduleList"></div>
+  <div id="scheduleList" class="card">
+    <p>No upcoming schedules saved yet.</p>
+  </div>
 
-  <!-- Firebase Web SDK Libraries -->
-  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-analytics-compat.js"></script>
-
-  <!-- Application Logic -->
   <script src="app.js"></script>
 </body>
 </html>
