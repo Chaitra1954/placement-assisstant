@@ -1,9 +1,7 @@
-// Import Firebase SDKs for Service Workers
 importScripts('https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/9.22.1/firebase-messaging-compat.js');
 
-// Initialize Firebase inside the Service Worker
-// Replace these placeholders with your actual Firebase config values
+// Initialize Firebase Service Worker
 firebase.initializeApp({
   apiKey: "AIzaSyDeie-hnqSsqlHjDr_gOyO7Sjc3dAr-I60",
   authDomain: "placement-assistant-bc0e5.firebaseapp.com",
@@ -15,14 +13,11 @@ firebase.initializeApp({
 
 const messaging = firebase.messaging();
 
-// Handle background notifications when the app/tab is closed
 messaging.onBackgroundMessage((payload) => {
-  console.log('[firebase-messaging-sw.js] Received background message: ', payload);
-
   const notificationTitle = payload.notification?.title || "🚨 Placement Alert";
   const notificationOptions = {
     body: payload.notification?.body || "You have an upcoming placement schedule event.",
-    icon: "/icon.png" // Optional: Path to an app icon image
+    icon: "/icon.png"
   };
 
   self.registration.showNotification(notificationTitle, notificationOptions);
