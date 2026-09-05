@@ -121,7 +121,7 @@ window.deleteSchedule = function(id) {
   renderSchedules();
 };
 
-// 5. Render Schedule List with Delete Buttons
+// 5. Render Schedule List (Original Staked Layout)
 function renderSchedules() {
   const scheduleList = document.getElementById('scheduleList');
   if (!scheduleList) return;
@@ -134,18 +134,15 @@ function renderSchedules() {
   }
 
   scheduleList.innerHTML = schedules.map(item => `
-    <div style="border: 1px solid #e0e0e0; padding: 12px; margin-bottom: 10px; border-radius: 6px; background: #fafafa; display: flex; justify-content: space-between; align-items: center;">
-      <div>
-        <strong>🏢 ${item.company}</strong> - ${item.title}<br>
-        ⏰ Time: ${item.time}
-      </div>
-      <button onclick="deleteSchedule(${item.id})" style="background-color: #dc3545; color: white; padding: 6px 12px; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">
-        🗑️ Delete
+    <div style="border: 1px solid #ccc; padding: 12px; margin-bottom: 10px; border-radius: 6px; background: #fff;">
+      <div><strong>🏢 ${item.company}</strong> - ${item.title}</div>
+      <div style="margin-top: 4px; color: #555;">⏰ Time: ${item.time}</div>
+      <button onclick="deleteSchedule(${item.id})" style="background-color: #dc3545; color: white; padding: 5px 10px; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; margin-top: 8px;">
+        🗑️ Delete Entry
       </button>
     </div>
   `).join('');
 }
-
 // 6. Restore API key and list on load
 document.addEventListener('DOMContentLoaded', () => {
   const apiKeyInput = document.getElementById('apiKeyInput');
