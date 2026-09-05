@@ -56,7 +56,7 @@ window.extractSchedule = async function() {
   // Try parsing with Gemini API if key exists, otherwise fallback to standard text extraction
   if (apiKey) {
     try {
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`, {
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -113,7 +113,15 @@ window.extractSchedule = async function() {
   renderSchedules();
 };
 
-// 4. Render Schedule List
+// 4. Delete Individual Schedule Item
+window.deleteSchedule = function(id) {
+  let schedules = JSON.parse(localStorage.getItem("placementSchedules") || "[]");
+  schedules = schedules.filter(item => item.id !== id);
+  localStorage.setItem("placementSchedules", JSON.stringify(schedules));
+  renderSchedules();
+};
+
+// 5. Render Schedule List with Delete Buttons
 function renderSchedules() {
   const scheduleList = document.getElementById('scheduleList');
   if (!scheduleList) return;
@@ -126,14 +134,19 @@ function renderSchedules() {
   }
 
   scheduleList.innerHTML = schedules.map(item => `
-    <div style="border: 1px solid #e0e0e0; padding: 12px; margin-bottom: 10px; border-radius: 6px; background: #fafafa;">
-      <strong>🏢 ${item.company}</strong> - ${item.title}<br>
-      ⏰ Time: ${item.time}
+    <div style="border: 1px solid #e0e0e0; padding: 12px; margin-bottom: 10px; border-radius: 6px; background: #fafafa; display: flex; justify-content: space-between; align-items: center;">
+      <div>
+        <strong>🏢 ${item.company}</strong> - ${item.title}<br>
+        ⏰ Time: ${item.time}
+      </div>
+      <button onclick="deleteSchedule(${item.id})" style="background-color: #dc3545; color: white; padding: 6px 12px; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">
+        🗑️ Delete
+      </button>
     </div>
   `).join('');
 }
 
-// 5. Restore API key and list on load
+// 6. Restore API key and list on load
 document.addEventListener('DOMContentLoaded', () => {
   const apiKeyInput = document.getElementById('apiKeyInput');
   if (apiKeyInput) {
