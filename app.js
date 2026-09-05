@@ -9,22 +9,33 @@ if ('serviceWorker' in navigator) {
 window.toggleApiKey = function() {
   const apiKeyInput = document.getElementById('apiKeyInput');
   const toggleBtn = document.getElementById('toggleApiKeyBtn');
+  if (!apiKeyInput) return;
   apiKeyInput.type = apiKeyInput.type === "password" ? "text" : "password";
-  toggleBtn.textContent = apiKeyInput.type === "password" ? "👁️ Show" : "🙈 Hide";
+  if (toggleBtn) toggleBtn.textContent = apiKeyInput.type === "password" ? "👁️ Show" : "🙈 Hide";
 };
 
-// 2. Notification Authorization
+// 2. Enable Notifications
 window.requestNotificationPermission = async function() {
   if (!("Notification" in window)) return alert("Notifications not supported in this browser.");
   const permission = await Notification.requestPermission();
   if (permission === "granted") {
-    new Notification("🔔 Daily Placement Alerts Active!", { body: "You will receive notifications 15 minutes prior to scheduled events." });
+    new Notification("🔔 Daily Placement Planner Active!", { body: "You will receive alerts 15 minutes before scheduled events." });
   } else {
-    alert("Permission denied. Enable notifications in your browser settings.");
+    alert("Notification permissions denied. Please enable them in browser settings.");
   }
 };
 
-// 3. Extract Schedule (AI + Regex Fallback Parser)
+// Helper: Format raw dates (e.g. "7th Sep 2026") into YYYY-MM-DD
+function parseToIsoDate(dateStr) {
+  try {
+    const cleanStr = dateStr.replace(/(st|nd|rd|th)/i, '');
+    const d = new Date(cleanStr);
+    if (!isNaN(d.getTime())) return d.toISOString().split('T')[0];
+  } catch (e) {}
+  return new Date().toISOString().split('T')[0];
+}
+
+// 3. Extract Schedule (LLM + Advanced Smart Fallback)
 window.extractSchedule = async function() {
   const apiKey = (document.getElementById('apiKeyInput')?.value || '').trim();
   const noticeText = (document.getElementById('noticeInput')?.value || '').trim();
@@ -34,18 +45,18 @@ window.extractSchedule = async function() {
   let newSchedule = null;
   const currentIsoTime = new Date().toISOString();
 
-  // Primary Parsing via Gemini API
+  // Try Gemini 1.5 Flash API first
   if (apiKey) {
     try {
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`, {
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{
             parts: [{
               text: `Extract key placement event info from this notice into valid JSON only. Current time context is ${currentIsoTime}. 
-              Format: {"company": "Name", "title": "Event/Role Name", "displayDate": "YYYY-MM-DD", "displayTime": "HH:MM AM/PM", "duration": "e.g. 45 mins / 2 hours", "isoTimestamp": "YYYY-MM-THH:mm:ss"}. 
-              Convert relative dates like "today" or "tomorrow" into accurate YYYY-MM-DD dates.\n\nNotice:\n${noticeText}`
+              Format: {"company": "Name", "title": "Event/Role Name", "displayDate": "YYYY-MM-DD", "displayTime": "HH:MM AM/PM", "duration": "e.g. 30 mins / 2 hours", "isoTimestamp": "YYYY-MM-THH:mm:ss"}. 
+              Extract start time and calculate duration if a time window is given.\n\nNotice:\n${noticeText}`
             }]
           }]
         })
@@ -70,35 +81,44 @@ window.extractSchedule = async function() {
         }
       }
     } catch (e) {
-      console.warn("Gemini API parsing failed, falling back to regex parser:", e);
+      console.warn("Gemini API call failed, switching to Smart Fallback Parser:", e);
     }
   }
 
-  // Fallback Text Parser (Runs if Gemini fails or API key is missing)
+  // Advanced Fallback Parser (Parses both formatted lists and natural paragraphs)
   if (!newSchedule) {
-    const compMatch = noticeText.match(/(?:Company|Organization):\s*(.*)/i);
-    const eventMatch = noticeText.match(/(?:Event|Title|Role):\s*(.*)/i);
-    const timeMatch = noticeText.match(/(?:Time|Schedule):\s*(.*)/i);
-    const dateMatch = noticeText.match(/(?:Date):\s*(.*)/i);
-    const durMatch = noticeText.match(/(?:Duration|Length):\s*(.*)/i);
+    const compMatch = noticeText.match(/(?:process of|assessment of|company:)\s*([A-Za-z0-9\s&]+(?:Pvt\.|Ltd\.|Inc\.|Corp)?)/i) || noticeText.match(/(?:Company):\s*(.*)/i);
+    const dateMatch = noticeText.match(/(\d{1,2}(?:st|nd|rd|th)?\s+[A-Za-z]{3,9}\s+\d{4})/i) || noticeText.match(/(?:Date):\s*(.*)/i);
+    const timeMatches = noticeText.match(/(\d{1,2}:\d{2}\s*(?:AM|PM))/gi);
+    const eventMatch = noticeText.match(/(?:online assessment|interview|coding test|placement talk|aptitude test)/i) || noticeText.match(/(?:Event|Title):\s*(.*)/i);
 
-    const todayStr = new Date().toISOString().split('T')[0];
+    const extractedCompany = compMatch ? compMatch[1].replace(/As a mandatory.*/i, '').trim() : "Placement Company";
+    const extractedDate = dateMatch ? parseToIsoDate(dateMatch[1]) : new Date().toISOString().split('T')[0];
+    const startTime = timeMatches ? timeMatches[0] : "10:00 AM";
+    const durationStr = timeMatches && timeMatches.length > 1 ? `${timeMatches[0]} to ${timeMatches[1]}` : "30 mins";
+
+    // Build timestamp from extracted date and time
+    let isoTs = new Date().toISOString();
+    try {
+      const combined = new Date(`${extractedDate} ${startTime}`);
+      if (!isNaN(combined.getTime())) isoTs = combined.toISOString();
+    } catch(e) {}
 
     newSchedule = {
       id: Date.now(),
-      company: compMatch ? compMatch[1].trim() : "Placement Company",
-      title: eventMatch ? eventMatch[1].trim() : "Placement Assessment",
-      date: dateMatch ? dateMatch[1].trim() : todayStr,
-      time: timeMatch ? timeMatch[1].trim() : "Upcoming",
-      duration: durMatch ? durMatch[1].trim() : "N/A",
-      isoTimestamp: new Date().toISOString(),
+      company: extractedCompany,
+      title: eventMatch ? (eventMatch[1] || eventMatch[0]) : "Placement Assessment",
+      date: extractedDate,
+      time: startTime,
+      duration: durationStr,
+      isoTimestamp: isoTs,
       notified: false
     };
   }
 
   const existingSchedules = JSON.parse(localStorage.getItem("placementSchedules") || "[]");
 
-  // Concurrency & Overlap Checking (Flags events within 15 mins of each other)
+  // Conflict Detection (Flags events scheduled within 15 minutes of each other)
   const newTimeMs = new Date(newSchedule.isoTimestamp).getTime();
   let hasConflict = false;
 
@@ -110,7 +130,7 @@ window.extractSchedule = async function() {
 
   if (overlappingEvent) {
     hasConflict = true;
-    const proceed = confirm(`⚠️ TIMING CONFLICT DETECTED!\n\n"${newSchedule.company}" (${newSchedule.time}) overlaps with "${overlappingEvent.company}" (${overlappingEvent.time}).\n\nSave to schedule anyway?`);
+    const proceed = confirm(`⚠️ SCHEDULE CONFLICT!\n\n"${newSchedule.company}" (${newSchedule.time}) is within 15 minutes of "${overlappingEvent.company}" (${overlappingEvent.time}).\n\nDo you still want to save it?`);
     if (!proceed) return;
   }
 
@@ -118,7 +138,8 @@ window.extractSchedule = async function() {
   existingSchedules.push(newSchedule);
   localStorage.setItem("placementSchedules", JSON.stringify(existingSchedules));
 
-  document.getElementById('noticeInput').value = "";
+  const noticeInput = document.getElementById('noticeInput');
+  if (noticeInput) noticeInput.value = "";
   alert("✨ Schedule Added Successfully!");
   renderSchedules();
 };
@@ -131,7 +152,7 @@ window.deleteSchedule = function(id) {
   renderSchedules();
 };
 
-// 5. Render Daily Schedule Plan Grouped by Date
+// 5. Render Daily Plan Grouped by Date
 function renderSchedules() {
   const scheduleList = document.getElementById('scheduleList');
   if (!scheduleList) return;
@@ -139,19 +160,19 @@ function renderSchedules() {
   const schedules = JSON.parse(localStorage.getItem("placementSchedules") || "[]");
 
   if (schedules.length === 0) {
-    scheduleList.innerHTML = "<p>No daily activities planned yet.</p>";
+    scheduleList.innerHTML = "<p>No daily activity planned yet.</p>";
     return;
   }
 
-  // Group events by Date string
+  // Group schedules by date
   const groupedSchedules = schedules.reduce((acc, item) => {
-    const key = item.date || "Unscheduled Date";
+    const key = item.date || "Unscheduled";
     if (!acc[key]) acc[key] = [];
     acc[key].push(item);
     return acc;
   }, {});
 
-  // Output daily agendas
+  // Output grouped daily lists
   scheduleList.innerHTML = Object.keys(groupedSchedules).sort().map(date => `
     <div style="margin-bottom: 20px;">
       <h3 style="background: #e9ecef; padding: 6px 12px; border-radius: 4px; margin-bottom: 10px; color: #495057;">
@@ -175,7 +196,7 @@ function renderSchedules() {
   `).join('');
 }
 
-// 6. Background Notification Loop (Evaluates every 15 seconds)
+// 6. Active Notification Interval Loop (Runs every 15 seconds)
 setInterval(() => {
   if (Notification.permission !== "granted") return;
 
@@ -187,7 +208,7 @@ setInterval(() => {
 
     const diffMs = new Date(item.isoTimestamp).getTime() - now;
 
-    // Fires 15 minutes before event start time
+    // Trigger alert 15 minutes before start time
     if (diffMs <= 15 * 60 * 1000 && diffMs > -5 * 60 * 1000) {
       new Notification(`🚨 Placement Alert: ${item.company}`, {
         body: `${item.title} starts in 15 mins (${item.time}) | Duration: ${item.duration}`,
@@ -199,6 +220,7 @@ setInterval(() => {
   localStorage.setItem("placementSchedules", JSON.stringify(schedules));
 }, 15000);
 
+// Initialize setup on load
 document.addEventListener('DOMContentLoaded', () => {
   const apiKeyInput = document.getElementById('apiKeyInput');
   if (apiKeyInput) {
