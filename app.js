@@ -54,6 +54,69 @@ function parseToIsoDate(dateStr) {
   return getLocalIsoDate(new Date());
 }
 
+// --- GEMINI PROXY CONFIG ---
+// Deploy the included Cloudflare Worker (gemini-proxy-worker.js) and paste its URL here.
+// Leave empty to fall back to direct client-side calls using the localStorage key (old behavior).
+const GEMINI_PROXY_URL = ""; // e.g. "https://gemini-proxy.yourname.workers.dev"
+
+async function callGemini(prompt, apiKey) {
+  if (GEMINI_PROXY_URL) {
+    const res = await fetch(GEMINI_PROXY_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt })
+    });
+    if (!res.ok) throw new Error(`Proxy returned ${res.status}`);
+    return res.json();
+  }
+
+  if (!apiKey) throw new Error("No API key set and no proxy configured");
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+  });
+  if (!res.ok) throw new Error(`Gemini API returned ${res.status}`);
+  return res.json();
+}
+
+// Extraction with self-correction retry: if the model returns unparseable JSON,
+// we send the error + its own bad output back and ask it to fix formatting.
+async function extractWithRetry(noticeText, currentLocalDate, apiKey, maxAttempts = 3) {
+  let lastError = null;
+  let lastRawText = null;
+
+  const basePrompt = `Extract placement event details from this notice into valid JSON format only. Reference local date: ${currentLocalDate}.
+JSON format: {"company": "Company Name", "title": "Event Name", "displayDate": "YYYY-MM-DD", "displayTime": "HH:MM AM/PM", "duration": "e.g. 30 mins", "isoTimestamp": "YYYY-MM-THH:mm:ss"}.
+
+Notice:
+${noticeText}`;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const prompt = attempt === 1
+      ? basePrompt
+      : `Your previous response could not be parsed as valid JSON.\nError: "${lastError}"\nYour previous response was:\n${lastRawText}\n\nRespond again with ONLY a valid JSON object, no markdown code fences, no explanation text.\n\n${basePrompt}`;
+
+    try {
+      const data = await callGemini(prompt, apiKey);
+      const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!rawText) throw new Error("Empty response from model");
+
+      lastRawText = rawText;
+      const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error("No JSON object found in response");
+
+      return JSON.parse(jsonMatch[0]); // success
+    } catch (e) {
+      lastError = e.message;
+      console.warn(`Gemini extraction attempt ${attempt}/${maxAttempts} failed: ${lastError}`);
+    }
+  }
+
+  console.warn(`All ${maxAttempts} Gemini attempts failed. Falling back to regex parser. Last error: ${lastError}`);
+  return null;
+}
+
 // 2. Extract & Sync Function
 window.extractSchedule = async function() {
   const noticeInput = document.getElementById('noticeInput');
@@ -69,41 +132,19 @@ window.extractSchedule = async function() {
   let newSchedule = null;
   const currentLocalDate = getLocalIsoDate(new Date());
 
-  // Primary LLM Extraction: Gemini 3.6 Flash
-  if (apiKey) {
-    try {
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{
-            parts: [{
-              text: `Extract placement event details from this notice into valid JSON format only. Reference local date: ${currentLocalDate}.
-              JSON format: {"company": "Company Name", "title": "Event Name", "displayDate": "YYYY-MM-DD", "displayTime": "HH:MM AM/PM", "duration": "e.g. 30 mins", "isoTimestamp": "YYYY-MM-THH:mm:ss"}.\n\nNotice:\n${noticeText}`
-            }]
-          }]
-        })
-      });
-
-      const data = await response.json();
-      if (data.candidates?.[0]?.content?.parts?.[0]?.text) {
-        const rawText = data.candidates[0].content.parts[0].text;
-        const jsonMatch = rawText.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          const parsed = JSON.parse(jsonMatch[0]);
-          newSchedule = {
-            company: parsed.company || "Placement Company",
-            title: parsed.title || "Placement Assessment",
-            date: parsed.displayDate || currentLocalDate,
-            time: parsed.displayTime || "10:00 AM",
-            duration: parsed.duration || "N/A",
-            isoTimestamp: parsed.isoTimestamp || new Date().toISOString(),
-            notified: false
-          };
-        }
-      }
-    } catch (e) {
-      console.warn("Gemini 3.6 API failed, falling back to smart regex parser:", e);
+  // Primary LLM Extraction: Gemini 3.6 Flash (via proxy if configured, with retry on malformed JSON)
+  if (GEMINI_PROXY_URL || apiKey) {
+    const parsed = await extractWithRetry(noticeText, currentLocalDate, apiKey);
+    if (parsed) {
+      newSchedule = {
+        company: parsed.company || "Placement Company",
+        title: parsed.title || "Placement Assessment",
+        date: parsed.displayDate || currentLocalDate,
+        time: parsed.displayTime || "10:00 AM",
+        duration: parsed.duration || "N/A",
+        isoTimestamp: parsed.isoTimestamp || new Date().toISOString(),
+        notified: false
+      };
     }
   }
 
