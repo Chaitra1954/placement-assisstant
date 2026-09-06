@@ -57,7 +57,7 @@ function parseToIsoDate(dateStr) {
 // --- GEMINI PROXY CONFIG ---
 // Deploy the included Cloudflare Worker (gemini-proxy-worker.js) and paste its URL here.
 // Leave empty to fall back to direct client-side calls using the localStorage key (old behavior).
-const GEMINI_PROXY_URL = ""; // e.g. "https://gemini-proxy.yourname.workers.dev"
+const GEMINI_PROXY_URL = "https://twilight-wave-d6a1.shobhaharadi23684.workers.dev"; // Cloudflare Worker proxy
 
 async function callGemini(prompt, apiKey) {
   if (GEMINI_PROXY_URL) {
