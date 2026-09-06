@@ -224,25 +224,42 @@ function listenToCloudSchedules() {
   });
 }
 
-// 5. 15-Minute Advance Alert Interval Loop
+// 5. 30-Minute Advance Alert Interval Loop (per-device tracking)
+const NOTIFIED_KEY = 'notifiedEventIds';
+
+function getNotifiedIds() {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(NOTIFIED_KEY) || '[]'));
+  } catch (e) {
+    return new Set();
+  }
+}
+
+function markNotifiedLocally(docId) {
+  const ids = getNotifiedIds();
+  ids.add(docId);
+  localStorage.setItem(NOTIFIED_KEY, JSON.stringify([...ids]));
+}
+
 setInterval(async () => {
   if (Notification.permission !== "granted") return;
 
   try {
     const snapshot = await db.collection("schedules").get();
     const now = new Date().getTime();
+    const notifiedIds = getNotifiedIds();
 
-    snapshot.docs.forEach(async (doc) => {
+    snapshot.docs.forEach((doc) => {
       const item = doc.data();
-      if (item.notified || !item.isoTimestamp) return;
+      if (notifiedIds.has(doc.id) || !item.isoTimestamp) return;
 
       const diffMs = new Date(item.isoTimestamp).getTime() - now;
 
-      if (diffMs <= 15 * 60 * 1000 && diffMs > -5 * 60 * 1000) {
+      if (diffMs <= 30 * 60 * 1000 && diffMs > -5 * 60 * 1000) {
         new Notification(`🚨 Placement Alert: ${item.company}`, {
-          body: `${item.title} starts in 15 mins (${item.time}) | Duration: ${item.duration}`,
+          body: `${item.title} starts in 30 mins (${item.time}) | Duration: ${item.duration}`,
         });
-        await db.collection("schedules").doc(doc.id).update({ notified: true });
+        markNotifiedLocally(doc.id);
       }
     });
   } catch (e) {}
