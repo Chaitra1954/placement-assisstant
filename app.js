@@ -219,47 +219,118 @@ window.deleteSchedule = async function(docId) {
 };
 
 // 4. Real-time Firestore Listener
+let showPastEvents = false;
+const PAST_EVENT_GRACE_MS = 60 * 60 * 1000;       // 1 hour: when an event moves from "upcoming" to "past"
+const AUTO_DELETE_AFTER_MS = 7 * 24 * 60 * 60 * 1000; // 7 days: when a past event gets permanently deleted
+
+function isPastEvent(item, now) {
+  if (!item.isoTimestamp) return false;
+  return (now - new Date(item.isoTimestamp).getTime()) > PAST_EVENT_GRACE_MS;
+}
+
+window.togglePastEvents = function() {
+  showPastEvents = !showPastEvents;
+  listenToCloudSchedules._lastSnapshot && renderSchedules(listenToCloudSchedules._lastSnapshot);
+};
+
+function renderEventCard(item) {
+  return `
+    <div style="border: 1px solid ${item.hasConflict ? '#ffc107' : '#dee2e6'}; padding: 12px; margin-bottom: 8px; border-radius: 6px; background: ${item.hasConflict ? '#fff9e6' : '#fff'};">
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <div><strong>🏢 ${item.company}</strong> - ${item.title}</div>
+        ${item.hasConflict ? '<span class="conflict-badge">⚠️ Conflict</span>' : ''}
+      </div>
+      <div style="margin-top: 6px; color: #555; font-size: 13px;">
+        ⏰ <strong>Time:</strong> ${item.time} &nbsp;|&nbsp; ⏳ <strong>Duration:</strong> ${item.duration}
+      </div>
+      <button class="btn-danger" onclick="deleteSchedule('${item.id}')">
+        🗑️ Delete Entry
+      </button>
+    </div>`;
+}
+
+function renderGroupedByDate(schedules, heading) {
+  const grouped = schedules.reduce((acc, item) => {
+    const key = item.date || "Unscheduled";
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(item);
+    return acc;
+  }, {});
+
+  return `
+    ${heading}
+    ${Object.keys(grouped).sort().map(date => `
+      <div style="margin-bottom: 20px;">
+        <h3 style="background: #e9ecef; padding: 8px 12px; border-radius: 4px; color: #495057; font-size: 16px; margin-bottom: 10px;">
+          📅 Agenda for ${date}
+        </h3>
+        ${grouped[date].map(renderEventCard).join('')}
+      </div>
+    `).join('')}
+  `;
+}
+
+function renderSchedules(schedules) {
+  const scheduleList = document.getElementById('scheduleList');
+  if (!scheduleList) return;
+
+  const now = new Date().getTime();
+  const upcoming = schedules.filter(item => !isPastEvent(item, now));
+  const past = schedules.filter(item => isPastEvent(item, now));
+
+  const toggleHtml = past.length > 0 ? `
+    <div style="margin-bottom: 12px; text-align: right;">
+      <button class="btn-secondary" onclick="togglePastEvents()">
+        ${showPastEvents ? '🙈 Hide Past Events' : `🕓 View Past Events (${past.length})`}
+      </button>
+    </div>` : '';
+
+  let html = toggleHtml;
+
+  html += upcoming.length > 0
+    ? renderGroupedByDate(upcoming, '')
+    : "<p style='color: #6c757d;'>No upcoming activities planned.</p>";
+
+  if (showPastEvents && past.length > 0) {
+    html += `<hr style="margin: 24px 0; border: none; border-top: 2px dashed #dee2e6;">`;
+    html += renderGroupedByDate(past, `
+      <h2 style="color: #6c757d; font-size: 15px; margin-bottom: 12px;">🕓 Past Events</h2>
+    `);
+  }
+
+  scheduleList.innerHTML = html;
+}
+
+// Deletes past events older than AUTO_DELETE_AFTER_MS. Runs once per snapshot update.
+async function cleanupOldEvents(schedules) {
+  const now = new Date().getTime();
+  const toDelete = schedules.filter(item =>
+    item.isoTimestamp && (now - new Date(item.isoTimestamp).getTime()) > AUTO_DELETE_AFTER_MS
+  );
+  for (const item of toDelete) {
+    try {
+      await db.collection("schedules").doc(item.id).delete();
+    } catch (e) {
+      console.warn("Failed to auto-delete old event:", item.id, e);
+    }
+  }
+}
+
 function listenToCloudSchedules() {
   const scheduleList = document.getElementById('scheduleList');
   if (!scheduleList) return;
 
   db.collection("schedules").onSnapshot((snapshot) => {
     const schedules = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    listenToCloudSchedules._lastSnapshot = schedules;
 
     if (schedules.length === 0) {
       scheduleList.innerHTML = "<p style='color: #6c757d;'>No daily activities planned yet.</p>";
       return;
     }
 
-    // Group schedules by Date string
-    const grouped = schedules.reduce((acc, item) => {
-      const key = item.date || "Unscheduled";
-      if (!acc[key]) acc[key] = [];
-      acc[key].push(item);
-      return acc;
-    }, {});
-
-    scheduleList.innerHTML = Object.keys(grouped).sort().map(date => `
-      <div style="margin-bottom: 20px;">
-        <h3 style="background: #e9ecef; padding: 8px 12px; border-radius: 4px; color: #495057; font-size: 16px; margin-bottom: 10px;">
-          📅 Agenda for ${date}
-        </h3>
-        ${grouped[date].map(item => `
-          <div style="border: 1px solid ${item.hasConflict ? '#ffc107' : '#dee2e6'}; padding: 12px; margin-bottom: 8px; border-radius: 6px; background: ${item.hasConflict ? '#fff9e6' : '#fff'};">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-              <div><strong>🏢 ${item.company}</strong> - ${item.title}</div>
-              ${item.hasConflict ? '<span class="conflict-badge">⚠️ Conflict</span>' : ''}
-            </div>
-            <div style="margin-top: 6px; color: #555; font-size: 13px;">
-              ⏰ <strong>Time:</strong> ${item.time} &nbsp;|&nbsp; ⏳ <strong>Duration:</strong> ${item.duration}
-            </div>
-            <button class="btn-danger" onclick="deleteSchedule('${item.id}')">
-              🗑️ Delete Entry
-            </button>
-          </div>
-        `).join('')}
-      </div>
-    `).join('');
+    renderSchedules(schedules);
+    cleanupOldEvents(schedules);
   }, (error) => {
     scheduleList.innerHTML = `<p style="color: #dc3545;">❌ Database Sync Error: ${error.message}</p>`;
   });
